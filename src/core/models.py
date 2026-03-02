@@ -82,7 +82,9 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     gender: Mapped[Gender] = mapped_column(
-        Enum(Gender, name="gender_enum"), nullable=False, default=Gender.unknown
+        Enum(Gender, name="gender_enum", values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+        default=Gender.unknown,
     )
     is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
