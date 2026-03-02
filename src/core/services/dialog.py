@@ -5,7 +5,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.core.models import Dialog, DialogStatus, Message, MessageStatus
+from src.core.models import ContentStatus, Dialog, DialogStatus, Message
 
 
 async def get_or_create_dialog(
@@ -53,7 +53,7 @@ async def add_message(
         recipient_id=recipient_id,
         text=text,
         photo_id=photo_id,
-        status=MessageStatus.active,
+        status=ContentStatus.active,
     )
     session.add(msg)
     await session.commit()
@@ -84,7 +84,7 @@ async def get_user_dialogs(session: AsyncSession, user_id: int) -> list[Dialog]:
 async def get_dialog_messages(session: AsyncSession, dialog_id: int) -> list[Message]:
     result = await session.execute(
         select(Message)
-        .where(Message.dialog_id == dialog_id, Message.status == MessageStatus.active)
+        .where(Message.dialog_id == dialog_id, Message.status == ContentStatus.active)
         .order_by(Message.created_at.asc())
     )
     return list(result.scalars().all())
