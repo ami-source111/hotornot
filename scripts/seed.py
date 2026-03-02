@@ -6,11 +6,12 @@ Usage:
 
 Arguments:
     --chat-id   Your Telegram user ID (the bot will send photos there to get file_ids)
-    --users     Number of fake users to create (default: 10)
+    --users     Number of fake users to create (default: 100, i.e. 50M + 50F)
     --photos    Number of photos per user (default: 1)
 
 Example:
-    docker compose exec web python scripts/seed.py --chat-id 26488750 --users 10
+    docker compose exec web python scripts/seed.py --chat-id 26488750
+    docker compose exec web python scripts/seed.py --chat-id 26488750 --users 100
 """
 from __future__ import annotations
 
@@ -39,35 +40,48 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 FAKE_MALE_NAMES = [
-    ("Алексей", "alex_seed"),
-    ("Дмитрий", "dmitry_seed"),
-    ("Иван", "ivan_seed"),
-    ("Михаил", "misha_seed"),
-    ("Сергей", "sergey_seed"),
-    ("Андрей", "andrey_seed"),
-    ("Никита", "nikita_seed"),
-    ("Артём", "artem_seed"),
-    ("Кирилл", "kirill_seed"),
-    ("Павел", "pavel_seed"),
+    ("Алексей", "alex"), ("Дмитрий", "dmitry"), ("Иван", "ivan"),
+    ("Михаил", "misha"), ("Сергей", "sergey"), ("Андрей", "andrey"),
+    ("Никита", "nikita"), ("Артём", "artem"), ("Кирилл", "kirill"),
+    ("Павел", "pavel"), ("Роман", "roman"), ("Максим", "maxim"),
+    ("Евгений", "evgeny"), ("Антон", "anton"), ("Денис", "denis"),
+    ("Владимир", "volodya"), ("Александр", "sasha"), ("Тимур", "timur"),
+    ("Руслан", "ruslan"), ("Виктор", "viktor"), ("Олег", "oleg"),
+    ("Игорь", "igor"), ("Владислав", "vlad"), ("Егор", "egor"),
+    ("Степан", "stepan"), ("Фёдор", "fedya"), ("Леонид", "lenya"),
+    ("Константин", "kostya"), ("Вадим", "vadim"), ("Борис", "borya"),
+    ("Геннадий", "gena"), ("Юрий", "yura"), ("Глеб", "gleb"),
+    ("Тихон", "tikhon"), ("Семён", "semyon"), ("Марк", "mark"),
+    ("Захар", "zakhar"), ("Матвей", "matvey"), ("Лев", "lev"),
+    ("Даниил", "danil"), ("Илья", "ilya"), ("Ярослав", "yarik"),
+    ("Тарас", "taras"), ("Всеволод", "vseva"), ("Платон", "platon"),
+    ("Арсений", "arseny"), ("Трофим", "trofim"), ("Пётр", "petya"),
+    ("Григорий", "grisha"), ("Валентин", "valentin"),
 ]
 
 FAKE_FEMALE_NAMES = [
-    ("Анна", "anna_seed"),
-    ("Мария", "maria_seed"),
-    ("Екатерина", "katya_seed"),
-    ("Ольга", "olga_seed"),
-    ("Наталья", "natasha_seed"),
-    ("Юлия", "julia_seed"),
-    ("Елена", "elena_seed"),
-    ("Виктория", "vika_seed"),
-    ("Дарья", "dasha_seed"),
-    ("Татьяна", "tanya_seed"),
+    ("Анна", "anna"), ("Мария", "maria"), ("Екатерина", "katya"),
+    ("Ольга", "olga"), ("Наталья", "natasha"), ("Юлия", "julia"),
+    ("Елена", "elena"), ("Виктория", "vika"), ("Дарья", "dasha"),
+    ("Татьяна", "tanya"), ("Ирина", "ira"), ("Светлана", "sveta"),
+    ("Алина", "alina"), ("Кристина", "kristina"), ("Валерия", "lera"),
+    ("Полина", "polina"), ("Вероника", "veronika"), ("Ксения", "ksenia"),
+    ("Марина", "marina"), ("Людмила", "lyuda"), ("Галина", "galya"),
+    ("Тамара", "tamara"), ("Нина", "nina"), ("Лариса", "larisa"),
+    ("Жанна", "zhanna"), ("Диана", "diana"), ("Зинаида", "zina"),
+    ("Надежда", "nadya"), ("Любовь", "lyubov"), ("Вера", "vera"),
+    ("Регина", "regina"), ("Карина", "karina"), ("Милана", "milana"),
+    ("Ангелина", "angela"), ("Алёна", "alyona"), ("Снежана", "snezhana"),
+    ("Маргарита", "rita"), ("Антонина", "tonya"), ("Евгения", "zhenya"),
+    ("Софья", "sonya"), ("Варвара", "varvara"), ("Александра", "sasha_f"),
+    ("Валентина", "valentina"), ("Таисия", "tasya"), ("Ульяна", "ulyana"),
+    ("Анастасия", "nastya"), ("Людмила", "mila"), ("Оксана", "oksana"),
+    ("Инна", "inna"), ("Лиза", "liza"),
 ]
 
-# Picsum photo sets: male portraits = 200-399, female = 400-599
-# (just using different ID ranges for visual variety)
-MALE_PHOTO_IDS = list(range(10, 110))
-FEMALE_PHOTO_IDS = list(range(200, 300))
+# Wide range of picsum IDs for variety
+MALE_PHOTO_IDS = list(range(1, 200))
+FEMALE_PHOTO_IDS = list(range(200, 400))
 
 
 # ---------------------------------------------------------------------------
@@ -249,8 +263,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed fake users and photos")
     parser.add_argument("--chat-id", type=int, required=True,
                         help="Your Telegram user ID (bot will send photos here)")
-    parser.add_argument("--users", type=int, default=10,
-                        help="Total number of fake users (default: 10)")
+    parser.add_argument("--users", type=int, default=100,
+                        help="Total number of fake users (default: 100, i.e. 50M + 50F)")
     parser.add_argument("--photos", type=int, default=1,
                         help="Photos per user (default: 1)")
     args = parser.parse_args()
