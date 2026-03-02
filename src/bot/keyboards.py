@@ -5,6 +5,16 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
+# --- Age verification ---
+
+def age_verification_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Мне есть 18 лет, я принимаю условия", callback_data="age:confirm")
+    builder.button(text="❌ Мне нет 18 лет", callback_data="age:decline")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 # --- Gender selection ---
 
 def gender_keyboard() -> InlineKeyboardMarkup:
