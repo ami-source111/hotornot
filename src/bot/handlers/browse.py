@@ -1,23 +1,23 @@
 """Handlers for /browse command — feed browsing and reactions."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message, FSInputFile
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
+from src.core.config import settings
 from src.core.database import async_session_factory
 from src.core.models import ReactionType
-from src.core.services.photo import get_next_photo, get_photo, get_author_photos
-from src.core.services.rating import set_reaction, get_photo_reactions, REACTION_EMOJI
+from src.core.services.photo import get_author_photos, get_next_photo, get_photo
+from src.core.services.rating import REACTION_EMOJI, set_reaction
 from src.core.services.user import get_or_create_user, get_user
 from src.bot.keyboards import (
+    author_profile_keyboard,
     feed_filter_keyboard,
-    reaction_keyboard,
     post_reaction_keyboard,
+    reaction_keyboard,
 )
 
 router = Router(name="browse")
@@ -29,22 +29,12 @@ class BrowseStates(StatesGroup):
     browsing = State()
 
 
-def _reaction_summary(counts: dict[str, int]) -> str:
-    total = sum(counts.values())
-    if total == 0:
-        return "пока нет реакций"
-    parts = []
-    for key, emoji in [("heart", "❤️"), ("fire", "🔥"), ("heart_eyes", "😍"), ("dislike", "👎")]:
-        if counts.get(key, 0) > 0:
-            parts.append(f"{emoji}{counts[key]}")
-    return "  ".join(parts) if parts else "пока нет реакций"
-
-
 async def _send_photo(
     target: Message,
     viewer_id: int,
     gender_filter: str,
 ) -> None:
+    """Fetch the next unrated photo and send it with reaction buttons."""
     async with async_session_factory() as session:
         photo = await get_next_photo(session, viewer_id, gender_filter)
         if photo is None:
@@ -65,15 +55,14 @@ async def _send_photo(
     gender_emoji = "👨" if author_gender == "M" else ("👩" if author_gender == "F" else "👤")
     caption = f"{gender_emoji} <b>{author_name}</b>"
 
-    if file_path and Path(file_path).exists():
-        photo_input = FSInputFile(file_path)
+    if file_path and (settings.media_dir / file_path).exists():
+        photo_input = FSInputFile(str(settings.media_dir / file_path))
     else:
         photo_input = file_id
 
     await target.answer_photo(
         photo=photo_input,
         caption=caption,
-        parse_mode="HTML",
         reply_markup=reaction_keyboard(photo_id, allow_comments, gender_filter, author_name),
     )
 
@@ -154,10 +143,8 @@ async def cb_react(callback: CallbackQuery, state: FSMContext) -> None:
         author_name = (author.display_name or author.first_name or "Аноним") if author else "Аноним"
 
     emoji = REACTION_EMOJI.get(reaction, "✅")
-    msg = f"{emoji} Реакция {'поставлена' if is_new else 'изменена'}!"
-    await callback.answer(msg)
+    await callback.answer(f"{emoji} Реакция {'поставлена' if is_new else 'изменена'}!")
 
-    # Replace keyboard with post-reaction actions, then auto-show next photo
     try:
         await callback.message.edit_reply_markup(
             reply_markup=post_reaction_keyboard(photo_id, allow_comments, gender_filter, author_name)
@@ -165,15 +152,16 @@ async def cb_react(callback: CallbackQuery, state: FSMContext) -> None:
     except Exception:
         pass
 
-    # Auto-advance to next photo
     await _send_photo(callback.message, callback.from_user.id, gender_filter)
 
 
-# --- Author profile ---
+# ---------------------------------------------------------------------------
+# Author profile gallery
+# ---------------------------------------------------------------------------
 
 @router.callback_query(lambda c: c.data and c.data.startswith("profile:photo:"))
 async def cb_author_profile(callback: CallbackQuery, state: FSMContext) -> None:
-    """Show first photo of the author of this photo."""
+    """Show first photo of the author of the given photo."""
     photo_id = int(callback.data.split(":")[2])
     async with async_session_factory() as session:
         photo = await get_photo(session, photo_id)
@@ -183,30 +171,25 @@ async def cb_author_profile(callback: CallbackQuery, state: FSMContext) -> None:
         author = await get_user(session, photo.author_id)
         author_name = (author.display_name or author.first_name or "Аноним") if author else "Аноним"
         author_gender = author.gender.value if author else "unknown"
-        # Get author's photos (excluding current)
         author_photos = await get_author_photos(session, photo.author_id)
 
     if not author_photos:
         await callback.answer("У этого автора нет доступных фото.", show_alert=True)
         return
 
-    # Save profile browse state
-    data = await state.get_data()
-    gender_filter = data.get("gender_filter", "all")
-    await state.update_data(profile_author_id=photo.author_id, profile_photo_index=0, gender_filter=gender_filter)
-
-    first_photo = author_photos[0]
-    await _send_author_photo(callback.message, first_photo, author_name, author_gender, 0, len(author_photos), gender_filter)
+    await state.update_data(profile_author_id=photo.author_id, profile_photo_index=0)
+    await _send_author_photo(
+        callback.message, author_photos[0], author_name, author_gender, 0, len(author_photos)
+    )
     await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("profile:next:"))
 async def cb_profile_next(callback: CallbackQuery, state: FSMContext) -> None:
-    """Next photo in author profile."""
+    """Next photo in author profile gallery."""
     data = await state.get_data()
     author_id = data.get("profile_author_id")
     index = data.get("profile_photo_index", 0) + 1
-    gender_filter = data.get("gender_filter", "all")
 
     if not author_id:
         await callback.answer("Сессия устарела.", show_alert=True)
@@ -223,7 +206,9 @@ async def cb_profile_next(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await state.update_data(profile_photo_index=index)
-    await _send_author_photo(callback.message, author_photos[index], author_name, author_gender, index, len(author_photos), gender_filter)
+    await _send_author_photo(
+        callback.message, author_photos[index], author_name, author_gender, index, len(author_photos)
+    )
     await callback.answer()
 
 
@@ -236,25 +221,25 @@ async def cb_profile_back(callback: CallbackQuery, state: FSMContext) -> None:
     await _send_photo(callback.message, callback.from_user.id, gender_filter)
 
 
-async def _send_author_photo(target: Message, photo, author_name: str, author_gender: str, index: int, total: int, gender_filter: str) -> None:
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-
+async def _send_author_photo(
+    target: Message,
+    photo,
+    author_name: str,
+    author_gender: str,
+    index: int,
+    total: int,
+) -> None:
+    """Send one photo from the author's gallery with navigation buttons."""
     gender_emoji = "👨" if author_gender == "M" else ("👩" if author_gender == "F" else "👤")
     caption = f"{gender_emoji} <b>{author_name}</b>  •  {index + 1}/{total}"
-    builder = InlineKeyboardBuilder()
-    builder.button(text="⬅️ Назад в ленту", callback_data="profile:back")
-    if index + 1 < total:
-        builder.button(text="➡️ Следующее фото автора", callback_data="profile:next:go")
-    builder.adjust(1)
 
-    if photo.file_path and Path(photo.file_path).exists():
-        photo_input = FSInputFile(photo.file_path)
+    if photo.file_path and (settings.media_dir / photo.file_path).exists():
+        photo_input = FSInputFile(str(settings.media_dir / photo.file_path))
     else:
         photo_input = photo.telegram_file_id
 
     await target.answer_photo(
         photo=photo_input,
         caption=caption,
-        parse_mode="HTML",
-        reply_markup=builder.as_markup(),
+        reply_markup=author_profile_keyboard(has_next=(index + 1 < total)),
     )

@@ -5,6 +5,7 @@ from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
+from src.bot.handlers.browse import BrowseStates, _send_photo
 from src.bot.keyboards import main_menu_keyboard
 
 router = Router(name="nav")
@@ -25,7 +26,6 @@ async def cb_nav_feed(callback: CallbackQuery, state: FSMContext) -> None:
     gender_filter = parts[2] if len(parts) > 2 else "all"
 
     await state.clear()
-    from src.bot.handlers.browse import BrowseStates, _send_photo
     await state.set_state(BrowseStates.browsing)
     await state.update_data(gender_filter=gender_filter)
     await callback.answer("📰 Переходим в ленту...")

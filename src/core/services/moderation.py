@@ -1,24 +1,23 @@
-"""Moderation service — used by web panel."""
+"""Moderation service — used by the web panel only."""
 from __future__ import annotations
 
 import random
 from datetime import datetime, timezone
 
-from sqlalchemy import delete as sa_delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.models import (
     AuditLog,
     Block,
     Comment,
-    CommentStatus,
+    ContentStatus,
     Gender,
     Message,
-    MessageStatus,
     Photo,
-    PhotoStatus,
     Report,
     ReportStatus,
+    ReportTarget,
     User,
 )
 
@@ -37,7 +36,7 @@ async def get_all_photos(
 
 async def hide_photo(session: AsyncSession, photo_id: int, moderator: str) -> bool:
     await session.execute(
-        update(Photo).where(Photo.id == photo_id).values(status=PhotoStatus.hidden)
+        update(Photo).where(Photo.id == photo_id).values(status=ContentStatus.hidden)
     )
     session.add(AuditLog(moderator=moderator, action="hide", target_type="photo", target_id=photo_id))
     await session.commit()
@@ -46,7 +45,7 @@ async def hide_photo(session: AsyncSession, photo_id: int, moderator: str) -> bo
 
 async def delete_photo(session: AsyncSession, photo_id: int, moderator: str) -> bool:
     await session.execute(
-        update(Photo).where(Photo.id == photo_id).values(status=PhotoStatus.deleted)
+        update(Photo).where(Photo.id == photo_id).values(status=ContentStatus.deleted)
     )
     session.add(AuditLog(moderator=moderator, action="delete", target_type="photo", target_id=photo_id))
     await session.commit()
@@ -100,13 +99,7 @@ async def ban_user(session: AsyncSession, user_id: int, moderator: str) -> bool:
     if user is None:
         return False
     user.is_blocked = True
-    audit = AuditLog(
-        moderator=moderator,
-        action="ban",
-        target_type="user",
-        target_id=user_id,
-    )
-    session.add(audit)
+    session.add(AuditLog(moderator=moderator, action="ban", target_type="user", target_id=user_id))
     await session.commit()
     return True
 
@@ -117,13 +110,7 @@ async def unban_user(session: AsyncSession, user_id: int, moderator: str) -> boo
     if user is None:
         return False
     user.is_blocked = False
-    audit = AuditLog(
-        moderator=moderator,
-        action="unban",
-        target_type="user",
-        target_id=user_id,
-    )
-    session.add(audit)
+    session.add(AuditLog(moderator=moderator, action="unban", target_type="user", target_id=user_id))
     await session.commit()
     return True
 
@@ -132,20 +119,14 @@ async def hide_comment(session: AsyncSession, comment_id: int, moderator: str) -
     await session.execute(
         update(Comment)
         .where(Comment.id == comment_id)
-        .values(status=CommentStatus.hidden)
+        .values(status=ContentStatus.hidden)
     )
-    audit = AuditLog(
-        moderator=moderator,
-        action="hide",
-        target_type="comment",
-        target_id=comment_id,
-    )
-    session.add(audit)
+    session.add(AuditLog(moderator=moderator, action="hide", target_type="comment", target_id=comment_id))
     await session.commit()
     return True
 
 
-async def get_pending_reports(session: AsyncSession, limit: int = 50) -> list[Report]:
+async def get_pending_reports(session: AsyncSession, limit: int = 100) -> list[Report]:
     result = await session.execute(
         select(Report)
         .where(Report.status == ReportStatus.pending)
@@ -169,7 +150,7 @@ async def get_report_target_preview(session: AsyncSession, report: Report) -> di
         "author_id": None,
         "photo_id": None,
     }
-    if report.target_type.value == "photo":
+    if report.target_type == ReportTarget.photo:
         r = await session.execute(select(Photo).where(Photo.id == report.target_id))
         obj = r.scalar_one_or_none()
         if obj:
@@ -177,7 +158,7 @@ async def get_report_target_preview(session: AsyncSession, report: Report) -> di
             info["author_id"] = obj.author_id
             info["status"] = obj.status.value
             info["photo_id"] = obj.id
-    elif report.target_type.value == "comment":
+    elif report.target_type == ReportTarget.comment:
         r = await session.execute(select(Comment).where(Comment.id == report.target_id))
         obj = r.scalar_one_or_none()
         if obj:
@@ -185,7 +166,7 @@ async def get_report_target_preview(session: AsyncSession, report: Report) -> di
             info["author_id"] = obj.author_id
             info["status"] = obj.status.value
             info["photo_id"] = obj.photo_id
-    elif report.target_type.value == "message":
+    elif report.target_type == ReportTarget.message:
         r = await session.execute(select(Message).where(Message.id == report.target_id))
         obj = r.scalar_one_or_none()
         if obj:
@@ -203,6 +184,8 @@ async def apply_moderation_action(
     note: str | None = None,
 ) -> bool:
     """
+    Apply a moderation decision to a report.
+
     action: hide | delete | ban | reject
     Returns True on success.
     """
@@ -213,44 +196,32 @@ async def apply_moderation_action(
     target_type = report.target_type.value
     target_id = report.target_id
 
-    if action == "reject":
-        # Just close the report, no content change
-        pass
+    if action in ("hide", "delete"):
+        new_status = ContentStatus.hidden if action == "hide" else ContentStatus.deleted
 
-    elif action in ("hide", "delete"):
-        new_status = PhotoStatus.hidden if action == "hide" else PhotoStatus.deleted
-
-        if target_type == "photo":
+        if report.target_type == ReportTarget.photo:
             await session.execute(
-                update(Photo)
-                .where(Photo.id == target_id)
-                .values(status=new_status)
+                update(Photo).where(Photo.id == target_id).values(status=new_status)
             )
-        elif target_type == "comment":
-            cs = CommentStatus.hidden if action == "hide" else CommentStatus.deleted
+        elif report.target_type == ReportTarget.comment:
             await session.execute(
-                update(Comment)
-                .where(Comment.id == target_id)
-                .values(status=cs)
+                update(Comment).where(Comment.id == target_id).values(status=new_status)
             )
-        elif target_type == "message":
-            ms = MessageStatus.hidden if action == "hide" else MessageStatus.deleted
+        elif report.target_type == ReportTarget.message:
             await session.execute(
-                update(Message)
-                .where(Message.id == target_id)
-                .values(status=ms)
+                update(Message).where(Message.id == target_id).values(status=new_status)
             )
 
     elif action == "ban":
-        # Ban the author of the target
+        # Ban the author of the reported content
         author_id: int | None = None
-        if target_type == "photo":
+        if report.target_type == ReportTarget.photo:
             r = await session.execute(select(Photo.author_id).where(Photo.id == target_id))
             author_id = r.scalar_one_or_none()
-        elif target_type == "comment":
+        elif report.target_type == ReportTarget.comment:
             r = await session.execute(select(Comment.author_id).where(Comment.id == target_id))
             author_id = r.scalar_one_or_none()
-        elif target_type == "message":
+        elif report.target_type == ReportTarget.message:
             r = await session.execute(select(Message.sender_id).where(Message.id == target_id))
             author_id = r.scalar_one_or_none()
 
@@ -259,7 +230,8 @@ async def apply_moderation_action(
                 update(User).where(User.id == author_id).values(is_blocked=True)
             )
 
-    # Mark report resolved / rejected
+    # action == "reject" → just close the report without touching content
+
     new_report_status = ReportStatus.rejected if action == "reject" else ReportStatus.resolved
     await session.execute(
         update(Report)
@@ -267,15 +239,13 @@ async def apply_moderation_action(
         .values(status=new_report_status, resolved_at=datetime.now(timezone.utc))
     )
 
-    # Write audit log
-    audit = AuditLog(
+    session.add(AuditLog(
         moderator=moderator,
         action=action,
         target_type=target_type,
         target_id=target_id,
         note=note,
-    )
-    session.add(audit)
+    ))
     await session.commit()
     return True
 
@@ -287,23 +257,17 @@ async def upload_photo_for_user(
     allow_comments: bool,
     moderator: str,
 ) -> Photo:
-    """Upload a photo on behalf of a user from a local file (web panel)."""
+    """Create a Photo record for a web-uploaded file. file_path is the filename only."""
     photo = Photo(
         author_id=author_id,
         telegram_file_id=None,
         file_path=file_path,
         allow_comments=allow_comments,
-        status=PhotoStatus.active,
+        status=ContentStatus.active,
     )
     session.add(photo)
     await session.flush()
-    audit = AuditLog(
-        moderator=moderator,
-        action="upload",
-        target_type="photo",
-        target_id=photo.id,
-    )
-    session.add(audit)
+    session.add(AuditLog(moderator=moderator, action="upload", target_type="photo", target_id=photo.id))
     await session.commit()
     await session.refresh(photo)
     return photo
@@ -316,19 +280,18 @@ async def hard_delete_user(session: AsyncSession, user_id: int, moderator: str) 
     if user is None:
         return False
     await session.delete(user)
-    audit = AuditLog(
+    session.add(AuditLog(
         moderator=moderator,
         action="hard_delete",
         target_type="user",
         target_id=user_id,
-    )
-    session.add(audit)
+    ))
     await session.commit()
     return True
 
 
 def generate_fake_user_id() -> int:
-    """Return a random user_id clearly outside the real Telegram ID range."""
+    """Return a random ID clearly outside the real Telegram range (< 9 billion)."""
     return random.randint(9_000_000_000, 9_999_999_999)
 
 
@@ -341,7 +304,10 @@ async def create_fake_user(
     moderator: str,
 ) -> User:
     """Create a synthetic user for testing/seeding via the web panel."""
-    gender_enum = Gender.male if gender == "M" else (Gender.female if gender == "F" else Gender.unknown)
+    gender_enum = (
+        Gender.male if gender == "M"
+        else (Gender.female if gender == "F" else Gender.unknown)
+    )
     user = User(
         id=user_id,
         first_name=first_name or display_name,
@@ -351,19 +317,18 @@ async def create_fake_user(
     )
     session.add(user)
     await session.flush()
-    audit = AuditLog(
+    session.add(AuditLog(
         moderator=moderator,
         action="create_fake_user",
         target_type="user",
         target_id=user_id,
-    )
-    session.add(audit)
+    ))
     await session.commit()
     await session.refresh(user)
     return user
 
 
-async def get_audit_log(session: AsyncSession, limit: int = 100) -> list[AuditLog]:
+async def get_audit_log(session: AsyncSession, limit: int = 200) -> list[AuditLog]:
     result = await session.execute(
         select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
     )

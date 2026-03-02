@@ -1,10 +1,10 @@
 """Reaction service — one reaction per user per photo, replaceable."""
 from __future__ import annotations
 
-from sqlalchemy import func as sqlfunc, select, update
+from sqlalchemy import func as sqlfunc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.models import Rating, ReactionType
+from src.core.models import ContentStatus, Photo, Rating, ReactionType
 
 REACTION_EMOJI = {
     ReactionType.heart: "❤️",
@@ -77,12 +77,11 @@ async def get_photo_avg(session: AsyncSession, photo_id: int) -> float | None:
 async def get_my_photos_reactions(
     session: AsyncSession, user_id: int
 ) -> list[dict]:
-    """Return reaction stats for each of the user's photos."""
-    from src.core.models import Photo, PhotoStatus
+    """Return reaction stats for each of the user's active photos."""
     photos_result = await session.execute(
         select(Photo).where(
             Photo.author_id == user_id,
-            Photo.status == PhotoStatus.active,
+            Photo.status == ContentStatus.active,
         )
     )
     photos = list(photos_result.scalars().all())

@@ -44,7 +44,7 @@ async def login_submit(
         key=SESSION_COOKIE,
         value=token,
         httponly=True,
-        samesite="lax",
+        samesite="strict",
         max_age=60 * 60 * 8,
     )
     return redirect

@@ -10,12 +10,19 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.core.database import async_session_factory
 from src.core.services.dialog import (
-    get_dialog,
-    get_user_dialogs,
     add_message as add_dialog_message,
     close_dialog,
+    get_dialog,
+    get_dialog_messages,
+    get_user_dialogs,
 )
 from src.core.services.user import get_user
+from src.bot.keyboards import (
+    cancel_keyboard,
+    dialog_message_keyboard,
+    dialog_open_keyboard,
+    nav_keyboard,
+)
 
 router = Router(name="dialog")
 
@@ -50,6 +57,7 @@ async def _show_chats(target: Message, user_id: int) -> None:
         )
         return
 
+    # Dynamic list — must be built inline since each button carries a unique dialog_id.
     builder = InlineKeyboardBuilder()
     for d in dialogs:
         label = f"💬 Диалог #{d.id} (фото #{d.comment_id or '—'})"
@@ -80,9 +88,7 @@ async def cb_dialog_open(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.answer("Нет доступа.", show_alert=True)
             return
 
-        from src.core.services.dialog import get_dialog_messages
         messages = await get_dialog_messages(session, dialog_id)
-        # Determine other party
         other_id = dialog.recipient_id if dialog.initiator_id == user_id else dialog.initiator_id
 
     if not messages:
@@ -94,13 +100,7 @@ async def cb_dialog_open(callback: CallbackQuery, state: FSMContext) -> None:
             lines.append(f"[{role}]: {m.text[:150]}")
         text = "\n".join(lines)
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="↩️ Ответить", callback_data=f"dialog:reply:{dialog_id}:{other_id}")
-    builder.button(text="🔴 Закрыть диалог", callback_data=f"dialog:close:{dialog_id}")
-    builder.button(text="⬅️ К списку чатов", callback_data="menu:chats")
-    builder.adjust(2, 1)
-
-    await callback.message.answer(text, reply_markup=builder.as_markup())
+    await callback.message.answer(text, reply_markup=dialog_open_keyboard(dialog_id, other_id))
     await callback.answer()
 
 
@@ -128,11 +128,9 @@ async def cb_dialog_reply_start(callback: CallbackQuery, state: FSMContext) -> N
     await state.set_state(DialogStates.waiting_reply)
     await state.update_data(dialog_id=dialog_id, recipient_id=recipient_id)
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="⬅️ Отмена", callback_data=f"dialog:open:{dialog_id}")
     await callback.message.answer(
         "↩️ Напиши ответ (анонимно):",
-        reply_markup=builder.as_markup(),
+        reply_markup=cancel_keyboard("⬅️ Отмена", f"dialog:open:{dialog_id}"),
     )
     await callback.answer()
 
@@ -159,22 +157,15 @@ async def handle_dialog_reply(message: Message, state: FSMContext) -> None:
         )
 
     await state.clear()
-    from src.bot.keyboards import nav_keyboard
     await message.answer("✅ Сообщение отправлено!", reply_markup=nav_keyboard())
 
     # Notify recipient
-    bot: Bot = message.bot
-    builder = InlineKeyboardBuilder()
-    builder.button(text="↩️ Ответить", callback_data=f"dialog:reply:{dialog_id}:{message.from_user.id}")
-    builder.button(text="🚫 Пожаловаться", callback_data=f"report:message:{msg.id}")
-    builder.button(text="🔴 Закрыть диалог", callback_data=f"dialog:close:{dialog_id}")
-    builder.adjust(2, 1)
-
     try:
+        bot: Bot = message.bot
         await bot.send_message(
             chat_id=recipient_id,
             text=f"📨 Новое сообщение в диалоге #{dialog_id}:\n\n«{text}»",
-            reply_markup=builder.as_markup(),
+            reply_markup=dialog_message_keyboard(dialog_id, message.from_user.id, msg.id),
         )
     except Exception:
         pass
@@ -193,8 +184,10 @@ async def cb_dialog_close(callback: CallbackQuery, state: FSMContext) -> None:
         ok = await close_dialog(session, dialog_id, user_id)
 
     if ok:
-        from src.bot.keyboards import nav_keyboard
-        await callback.message.answer(f"🔴 Диалог #{dialog_id} закрыт.", reply_markup=nav_keyboard())
+        await callback.message.answer(
+            f"🔴 Диалог #{dialog_id} закрыт.",
+            reply_markup=nav_keyboard(),
+        )
     else:
         await callback.answer("Не удалось закрыть диалог.", show_alert=True)
     await callback.answer()

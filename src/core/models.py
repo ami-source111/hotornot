@@ -1,6 +1,17 @@
 """
 SQLAlchemy models for RateApp.
-All tables use status: active | hidden | deleted  (no is_deleted).
+
+Status convention
+-----------------
+User-generated content (photos, comments, messages) shares a single
+`ContentStatus` enum with three states:
+  active  — visible to users
+  hidden  — soft-hidden by moderators (not shown, but recoverable)
+  deleted — soft-deleted (not shown, treated as gone)
+
+Using one Python enum keeps the codebase DRY while PostgreSQL still
+stores each column in its own typed enum (photo_status_enum, etc.) so
+existing DB data is untouched.
 """
 from __future__ import annotations
 
@@ -31,19 +42,9 @@ class Base(DeclarativeBase):
 # ---------------------------------------------------------------------------
 
 
-class PhotoStatus(str, enum.Enum):
-    active = "active"
-    hidden = "hidden"
-    deleted = "deleted"
+class ContentStatus(str, enum.Enum):
+    """Shared lifecycle status for photos, comments, and messages."""
 
-
-class CommentStatus(str, enum.Enum):
-    active = "active"
-    hidden = "hidden"
-    deleted = "deleted"
-
-
-class MessageStatus(str, enum.Enum):
     active = "active"
     hidden = "hidden"
     deleted = "deleted"
@@ -88,12 +89,12 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
-    """Telegram user_id — используется как PK напрямую."""
+    """Telegram user_id used as primary key directly."""
 
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    """Публичный ник, выбранный пользователем при регистрации."""
+    """Public nickname chosen by the user during registration."""
     gender: Mapped[Gender] = mapped_column(
         Enum(Gender, name="gender_enum", values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
@@ -144,12 +145,15 @@ class Photo(Base):
     telegram_file_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     """Telegram file_id (None for web-uploaded photos until first bot send)."""
     file_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    """Local file path for photos uploaded via web panel (e.g. /app/media/uuid.jpg)."""
+    """
+    Filename of the locally stored file (e.g. 'abc123.jpg').
+    Reconstruct the full path with: settings.media_dir / photo.file_path
+    """
     allow_comments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    status: Mapped[PhotoStatus] = mapped_column(
-        Enum(PhotoStatus, name="photo_status_enum"),
+    status: Mapped[ContentStatus] = mapped_column(
+        Enum(ContentStatus, name="photo_status_enum"),
         nullable=False,
-        default=PhotoStatus.active,
+        default=ContentStatus.active,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -168,7 +172,7 @@ class Photo(Base):
 
 
 class Rating(Base):
-    """Реакция пользователя на фото (одна реакция на фото, можно заменить)."""
+    """One reaction per user per photo; can be replaced by a new reaction."""
 
     __tablename__ = "ratings"
     __table_args__ = (
@@ -186,7 +190,7 @@ class Rating(Base):
         Enum(ReactionType, name="reaction_type_enum"),
         nullable=False,
     )
-    """Тип реакции: heart / fire / heart_eyes / dislike."""
+    """Reaction type: heart / fire / heart_eyes / dislike."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -211,12 +215,13 @@ class Comment(Base):
         Integer, ForeignKey("photos.id", ondelete="CASCADE"), nullable=False
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    """Comment text; set to '📷' for photo-only comments."""
     media_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     """Telegram file_id for a photo attached to the comment (optional)."""
-    status: Mapped[CommentStatus] = mapped_column(
-        Enum(CommentStatus, name="comment_status_enum"),
+    status: Mapped[ContentStatus] = mapped_column(
+        Enum(ContentStatus, name="comment_status_enum"),
         nullable=False,
-        default=CommentStatus.active,
+        default=ContentStatus.active,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -235,7 +240,7 @@ class Comment(Base):
 
 
 class Dialog(Base):
-    """Анонимный диалог между двумя пользователями, начатый с ответа на комментарий."""
+    """Anonymous conversation started when a photo author replies to a comment."""
 
     __tablename__ = "dialogs"
 
@@ -243,15 +248,15 @@ class Dialog(Base):
     comment_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("comments.id", ondelete="SET NULL"), nullable=True
     )
-    """Комментарий, с которого начался диалог (может быть NULL если удалён)."""
+    """The comment that started this dialog (NULL if the comment was deleted)."""
     initiator_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    """Автор фото, который первым ответил на комментарий."""
+    """Photo author who first replied to the comment."""
     recipient_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    """Автор комментария."""
+    """Author of the original comment."""
     status: Mapped[DialogStatus] = mapped_column(
         Enum(DialogStatus, name="dialog_status_enum"),
         nullable=False,
@@ -294,12 +299,12 @@ class Message(Base):
     photo_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("photos.id", ondelete="SET NULL"), nullable=True
     )
-    """Photo context (for reference, can be NULL)."""
+    """Photo that the dialog is about (for context; may be NULL)."""
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[MessageStatus] = mapped_column(
-        Enum(MessageStatus, name="message_status_enum"),
+    status: Mapped[ContentStatus] = mapped_column(
+        Enum(ContentStatus, name="message_status_enum"),
         nullable=False,
-        default=MessageStatus.active,
+        default=ContentStatus.active,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -351,7 +356,7 @@ class Report(Base):
 
 
 class Block(Base):
-    """A user blocking another user (photo author)."""
+    """A user blocking another user (hides that user's photos from the feed)."""
 
     __tablename__ = "blocks"
     __table_args__ = (
@@ -376,18 +381,19 @@ class Block(Base):
 
 
 class AuditLog(Base):
-    """Immutable log of moderation actions."""
+    """Immutable record of every moderation action taken via the web panel."""
 
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     moderator: Mapped[str] = mapped_column(String(64), nullable=False)
-    """Username of the web moderator who took the action."""
+    """Username of the web moderator who performed the action."""
     action: Mapped[str] = mapped_column(String(32), nullable=False)
-    """hide | delete | ban | reject"""
+    """hide | delete | ban | unban | reject | upload | create_fake_user | hard_delete"""
     target_type: Mapped[str] = mapped_column(String(32), nullable=False)
     """photo | comment | message | user | report"""
-    target_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    """ID of the affected entity. BigInteger to support Telegram user IDs."""
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

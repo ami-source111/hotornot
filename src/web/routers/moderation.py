@@ -1,9 +1,12 @@
 """Moderation panel routes."""
 from __future__ import annotations
 
+import io
 import uuid
-import urllib.request
 from pathlib import Path
+
+import httpx
+from PIL import Image
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -36,13 +39,14 @@ from src.core.services.moderation import (
 from src.web.auth import require_moderator
 from sqlalchemy import select
 
-MEDIA_DIR = Path("/app/media")
-MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-
 router = APIRouter()
 templates = Jinja2Templates(directory="src/web/templates")
 
 VALID_ACTIONS = {"hide", "delete", "ban", "reject"}
+
+# Fake user IDs must fall within this range (outside real Telegram ID space).
+FAKE_USER_ID_MIN = 9_000_000_000
+FAKE_USER_ID_MAX = 9_999_999_999
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -142,6 +146,13 @@ async def create_fake_user_submit(
     gender: str = Form(default="M"),
     moderator: str = Depends(require_moderator),
 ) -> RedirectResponse:
+    # Ensure the ID is in the reserved fake-user range to prevent collisions
+    # with real Telegram user IDs (which are below ~8 billion as of 2025).
+    if not (FAKE_USER_ID_MIN <= user_id <= FAKE_USER_ID_MAX):
+        return RedirectResponse(
+            f"/users/create-fake?error=id_out_of_range", status_code=302
+        )
+
     async with async_session_factory() as session:
         user = await create_fake_user(
             session,
@@ -251,17 +262,24 @@ async def photo_upload_submit(
     ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         ext = ".jpg"
-    filename = f"{uuid.uuid4().hex}{ext}"
-    file_path = MEDIA_DIR / filename
 
     contents = await file.read()
-    file_path.write_bytes(contents)
+
+    # Validate that the upload is a real image using Pillow.
+    try:
+        Image.open(io.BytesIO(contents)).verify()
+    except Exception:
+        return RedirectResponse("/photos/upload?error=invalid_image", status_code=302)
+
+    filename = f"{uuid.uuid4().hex}{ext}"
+    dest = settings.media_dir / filename
+    dest.write_bytes(contents)
 
     async with async_session_factory() as session:
-        photo = await upload_photo_for_user(
+        await upload_photo_for_user(
             session,
             author_id=user_id,
-            file_path=str(file_path),
+            file_path=filename,          # store relative filename only
             allow_comments=allow_comments_bool,
             moderator=moderator,
         )
@@ -294,7 +312,7 @@ async def photo_delete(photo_id: int, moderator: str = Depends(require_moderator
 
 
 # ---------------------------------------------------------------------------
-# Photo proxy (local file or Telegram)
+# Photo proxy (local file or Telegram CDN)
 # ---------------------------------------------------------------------------
 
 @router.get("/photo-proxy/{photo_id}")
@@ -309,27 +327,34 @@ async def photo_proxy(
     if photo is None:
         return StreamingResponse(iter([b""]), status_code=404, media_type="image/jpeg")
 
-    # Local file takes priority
-    if photo.file_path and Path(photo.file_path).exists():
-        img_bytes = Path(photo.file_path).read_bytes()
-        media_type = "image/jpeg"
-        if str(photo.file_path).endswith(".png"):
-            media_type = "image/png"
-        elif str(photo.file_path).endswith(".webp"):
-            media_type = "image/webp"
-        return StreamingResponse(iter([img_bytes]), media_type=media_type)
+    # Local file takes priority; file_path stores only the filename.
+    if photo.file_path:
+        local_path = settings.media_dir / photo.file_path
+        if local_path.exists():
+            img_bytes = local_path.read_bytes()
+            suffix = photo.file_path.lower()
+            if suffix.endswith(".png"):
+                media_type = "image/png"
+            elif suffix.endswith(".webp"):
+                media_type = "image/webp"
+            else:
+                media_type = "image/jpeg"
+            return StreamingResponse(iter([img_bytes]), media_type=media_type)
 
-    # Telegram proxy
+    # Fall back to Telegram CDN using async HTTP (non-blocking).
     if photo.telegram_file_id:
         try:
-            import json
-            api_url = f"https://api.telegram.org/bot{settings.bot_token}/getFile?file_id={photo.telegram_file_id}"
-            with urllib.request.urlopen(api_url, timeout=10) as resp:
-                data = json.loads(resp.read())
-            tg_path = data["result"]["file_path"]
-            img_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{tg_path}"
-            with urllib.request.urlopen(img_url, timeout=15) as resp:
-                img_bytes = resp.read()
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                tg_resp = await client.get(
+                    f"https://api.telegram.org/bot{settings.bot_token}/getFile",
+                    params={"file_id": photo.telegram_file_id},
+                )
+                tg_data = tg_resp.json()
+                tg_path = tg_data["result"]["file_path"]
+                img_resp = await client.get(
+                    f"https://api.telegram.org/file/bot{settings.bot_token}/{tg_path}"
+                )
+                img_bytes = img_resp.content
             return StreamingResponse(iter([img_bytes]), media_type="image/jpeg")
         except Exception:
             pass

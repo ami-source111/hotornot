@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.models import Block, Gender, Photo, PhotoStatus, Rating, User
+from src.core.models import Block, ContentStatus, Gender, Photo, Rating, User
 
 
 async def upload_photo(
@@ -17,7 +17,7 @@ async def upload_photo(
         author_id=author_id,
         telegram_file_id=telegram_file_id,
         allow_comments=allow_comments,
-        status=PhotoStatus.active,
+        status=ContentStatus.active,
     )
     session.add(photo)
     await session.commit()
@@ -52,7 +52,7 @@ async def get_next_photo(
         select(Photo)
         .join(User, Photo.author_id == User.id)
         .where(
-            Photo.status == PhotoStatus.active,
+            Photo.status == ContentStatus.active,
             Photo.author_id != viewer_id,
             Photo.id.not_in(rated_sub),
             Photo.author_id.not_in(blocked_sub),
@@ -83,7 +83,7 @@ async def get_author_photos(
     """Return active photos of a given author, ordered by created_at desc."""
     result = await session.execute(
         select(Photo)
-        .where(Photo.author_id == author_id, Photo.status == PhotoStatus.active)
+        .where(Photo.author_id == author_id, Photo.status == ContentStatus.active)
         .order_by(Photo.created_at.desc())
     )
     return list(result.scalars().all())
@@ -97,7 +97,7 @@ async def delete_photo(session: AsyncSession, photo_id: int, user_id: int) -> bo
     photo = result.scalar_one_or_none()
     if photo is None:
         return False
-    photo.status = PhotoStatus.deleted
+    photo.status = ContentStatus.deleted
     await session.commit()
     return True
 

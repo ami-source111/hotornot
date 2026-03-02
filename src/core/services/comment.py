@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.models import Comment, CommentStatus, Photo, PhotoStatus
+from src.core.models import Comment, ContentStatus, Photo
 
 
 async def add_comment(
@@ -14,9 +14,9 @@ async def add_comment(
     text: str,
     media_file_id: str | None = None,
 ) -> Comment | None:
-    """Add a comment. Returns None if photo doesn't allow comments or not active."""
+    """Add a comment. Returns None if photo doesn't allow comments or is not active."""
     result = await session.execute(
-        select(Photo).where(Photo.id == photo_id, Photo.status == PhotoStatus.active)
+        select(Photo).where(Photo.id == photo_id, Photo.status == ContentStatus.active)
     )
     photo = result.scalar_one_or_none()
     if photo is None or not photo.allow_comments:
@@ -37,7 +37,7 @@ async def add_comment(
 async def get_active_comments(session: AsyncSession, photo_id: int) -> list[Comment]:
     result = await session.execute(
         select(Comment)
-        .where(Comment.photo_id == photo_id, Comment.status == CommentStatus.active)
+        .where(Comment.photo_id == photo_id, Comment.status == ContentStatus.active)
         .order_by(Comment.created_at.asc())
     )
     return list(result.scalars().all())
