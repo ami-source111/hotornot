@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Пользователи — RateApp Mod{% endblock %}
+{% block content %}
+<h1>👥 Пользователи <span style="font-size:1rem;font-weight:400;color:#666;">(последние {{ users|length }})</span></h1>
+
+{% if not users %}
+  <div class="card" style="text-align:center;color:#666;padding:40px;">Нет пользователей</div>
+{% else %}
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table>
+      <thead>
+        <tr>
+          <th>Telegram ID</th>
+          <th>Имя</th>
+          <th>Username</th>
+          <th>Пол</th>
+          <th>Статус</th>
+          <th>Дата регистрации</th>
+          <th>Действие</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td class="meta">{{ u.id }}</td>
+          <td><strong>{{ u.first_name or '—' }}</strong></td>
+          <td class="meta">{{ '@' + u.username if u.username else '—' }}</td>
+          <td>
+            {% if u.gender.value == 'M' %}👦 М
+            {% elif u.gender.value == 'F' %}👧 Ж
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if u.is_blocked %}
+              <span class="badge badge-deleted">🔒 Заблокирован</span>
+            {% else %}
+              <span class="badge badge-active">✅ Активен</span>
+            {% endif %}
+          </td>
+          <td class="meta">{{ u.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td>
+            {% if u.is_blocked %}
+              <form method="post" action="/users/{{ u.id }}/unban">
+                <button type="submit" class="btn btn-success" style="padding:4px 10px;font-size:0.8rem;">Разблокировать</button>
+              </form>
+            {% else %}
+              <form method="post" action="/users/{{ u.id }}/ban">
+                <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Заблокировать</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

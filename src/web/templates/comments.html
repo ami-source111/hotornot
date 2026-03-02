@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Комментарии — RateApp Mod{% endblock %}
+{% block content %}
+<h1>💬 Лента комментариев <span style="font-size:1rem;font-weight:400;color:#666;">(последние {{ comments|length }})</span></h1>
+
+{% if not comments %}
+  <div class="card" style="text-align:center;color:#666;padding:40px;">Нет комментариев</div>
+{% else %}
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Фото</th>
+          <th>Автор (ID)</th>
+          <th>Комментарий</th>
+          <th>Статус</th>
+          <th>Дата</th>
+          <th>Действие</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in comments %}
+        <tr>
+          <td class="meta">{{ c.id }}</td>
+          <td><a href="#" style="color:#0d6efd;">фото #{{ c.photo_id }}</a></td>
+          <td class="meta">{{ c.author_id }}</td>
+          <td style="max-width:320px;word-break:break-word;">{{ c.text[:200] }}{% if c.text|length > 200 %}…{% endif %}</td>
+          <td><span class="badge badge-{{ c.status.value }}">{{ c.status.value }}</span></td>
+          <td class="meta">{{ c.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td>
+            {% if c.status.value == 'active' %}
+              <form method="post" action="/comments/{{ c.id }}/hide">
+                <button type="submit" class="btn btn-warning" style="padding:4px 10px;font-size:0.8rem;">Скрыть</button>
+              </form>
+            {% else %}
+              <span class="meta">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

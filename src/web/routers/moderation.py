@@ -8,10 +8,15 @@ from fastapi.templating import Jinja2Templates
 from src.core.database import async_session_factory
 from src.core.services.moderation import (
     apply_moderation_action,
+    ban_user,
+    get_all_comments,
+    get_all_users,
     get_audit_log,
     get_pending_reports,
     get_report,
     get_report_target_preview,
+    hide_comment,
+    unban_user,
 )
 from src.web.auth import require_moderator
 
@@ -80,6 +85,56 @@ async def report_action(
         )
 
     return RedirectResponse("/reports", status_code=302)
+
+
+@router.get("/users", response_class=HTMLResponse)
+async def users_list(request: Request, moderator: str = Depends(require_moderator)) -> HTMLResponse:
+    async with async_session_factory() as session:
+        users = await get_all_users(session, limit=200)
+    return templates.TemplateResponse(
+        "users.html",
+        {"request": request, "moderator": moderator, "users": users, "flash": None},
+    )
+
+
+@router.post("/users/{user_id}/ban")
+async def user_ban(
+    user_id: int,
+    moderator: str = Depends(require_moderator),
+) -> RedirectResponse:
+    async with async_session_factory() as session:
+        await ban_user(session, user_id, moderator)
+    return RedirectResponse("/users", status_code=302)
+
+
+@router.post("/users/{user_id}/unban")
+async def user_unban(
+    user_id: int,
+    moderator: str = Depends(require_moderator),
+) -> RedirectResponse:
+    async with async_session_factory() as session:
+        await unban_user(session, user_id, moderator)
+    return RedirectResponse("/users", status_code=302)
+
+
+@router.get("/comments", response_class=HTMLResponse)
+async def comments_list(request: Request, moderator: str = Depends(require_moderator)) -> HTMLResponse:
+    async with async_session_factory() as session:
+        comments = await get_all_comments(session, limit=200)
+    return templates.TemplateResponse(
+        "comments.html",
+        {"request": request, "moderator": moderator, "comments": comments, "flash": None},
+    )
+
+
+@router.post("/comments/{comment_id}/hide")
+async def comment_hide(
+    comment_id: int,
+    moderator: str = Depends(require_moderator),
+) -> RedirectResponse:
+    async with async_session_factory() as session:
+        await hide_comment(session, comment_id, moderator)
+    return RedirectResponse("/comments", status_code=302)
 
 
 @router.get("/audit", response_class=HTMLResponse)

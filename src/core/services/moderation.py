@@ -21,6 +21,81 @@ from src.core.models import (
 )
 
 
+async def get_all_users(
+    session: AsyncSession, limit: int = 200, offset: int = 0
+) -> list[User]:
+    result = await session.execute(
+        select(User)
+        .order_by(User.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_all_comments(
+    session: AsyncSession, limit: int = 200, offset: int = 0
+) -> list[Comment]:
+    result = await session.execute(
+        select(Comment)
+        .order_by(Comment.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def ban_user(session: AsyncSession, user_id: int, moderator: str) -> bool:
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        return False
+    user.is_blocked = True
+    audit = AuditLog(
+        moderator=moderator,
+        action="ban",
+        target_type="user",
+        target_id=user_id,
+    )
+    session.add(audit)
+    await session.commit()
+    return True
+
+
+async def unban_user(session: AsyncSession, user_id: int, moderator: str) -> bool:
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        return False
+    user.is_blocked = False
+    audit = AuditLog(
+        moderator=moderator,
+        action="unban",
+        target_type="user",
+        target_id=user_id,
+    )
+    session.add(audit)
+    await session.commit()
+    return True
+
+
+async def hide_comment(session: AsyncSession, comment_id: int, moderator: str) -> bool:
+    await session.execute(
+        update(Comment)
+        .where(Comment.id == comment_id)
+        .values(status=CommentStatus.hidden)
+    )
+    audit = AuditLog(
+        moderator=moderator,
+        action="hide",
+        target_type="comment",
+        target_id=comment_id,
+    )
+    session.add(audit)
+    await session.commit()
+    return True
+
+
 async def get_pending_reports(session: AsyncSession, limit: int = 50) -> list[Report]:
     result = await session.execute(
         select(Report)
