@@ -34,6 +34,15 @@ async def set_gender(session: AsyncSession, user_id: int, gender: Gender) -> Use
     return user
 
 
+async def set_display_name(session: AsyncSession, user_id: int, display_name: str) -> User:
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one()
+    user.display_name = display_name.strip()[:64]
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
 async def get_user(session: AsyncSession, user_id: int) -> User | None:
     result = await session.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()

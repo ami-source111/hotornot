@@ -75,3 +75,41 @@ async def get_next_photo(
 async def get_photo(session: AsyncSession, photo_id: int) -> Photo | None:
     result = await session.execute(select(Photo).where(Photo.id == photo_id))
     return result.scalar_one_or_none()
+
+
+async def get_author_photos(
+    session: AsyncSession, author_id: int
+) -> list[Photo]:
+    """Return active photos of a given author, ordered by created_at desc."""
+    result = await session.execute(
+        select(Photo)
+        .where(Photo.author_id == author_id, Photo.status == PhotoStatus.active)
+        .order_by(Photo.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def delete_photo(session: AsyncSession, photo_id: int, user_id: int) -> bool:
+    """Soft-delete a photo owned by user_id. Returns True if deleted."""
+    result = await session.execute(
+        select(Photo).where(Photo.id == photo_id, Photo.author_id == user_id)
+    )
+    photo = result.scalar_one_or_none()
+    if photo is None:
+        return False
+    photo.status = PhotoStatus.deleted
+    await session.commit()
+    return True
+
+
+async def toggle_comments(session: AsyncSession, photo_id: int, user_id: int) -> bool | None:
+    """Toggle allow_comments for a photo owned by user_id. Returns new value or None."""
+    result = await session.execute(
+        select(Photo).where(Photo.id == photo_id, Photo.author_id == user_id)
+    )
+    photo = result.scalar_one_or_none()
+    if photo is None:
+        return None
+    photo.allow_comments = not photo.allow_comments
+    await session.commit()
+    return photo.allow_comments

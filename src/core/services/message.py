@@ -1,4 +1,4 @@
-"""Anonymous message / dialog service."""
+"""Message service — legacy compatibility wrapper (use dialog service for new code)."""
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -13,14 +13,15 @@ async def create_message(
     recipient_id: int,
     text: str,
     photo_id: int | None = None,
-    comment_id: int | None = None,
+    comment_id: int | None = None,  # legacy param, ignored (dialog_id used instead)
+    dialog_id: int | None = None,
 ) -> Message:
     msg = Message(
         sender_id=sender_id,
         recipient_id=recipient_id,
         text=text,
         photo_id=photo_id,
-        comment_id=comment_id,
+        dialog_id=dialog_id,
     )
     session.add(msg)
     await session.commit()

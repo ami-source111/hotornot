@@ -143,6 +143,7 @@ async def get_or_create_fake_user(
             id=fake_id,
             username=username,
             first_name=first_name,
+            display_name=first_name,  # use first_name as display_name for seeds
             gender=gender,
             is_blocked=False,
         )
@@ -240,18 +241,20 @@ async def seed(chat_id: int, num_users: int, photos_per_user: int) -> None:
 
 
 async def _add_seed_ratings(session, photo_id: int, author_id: int, all_users: list[User]) -> None:
-    """Add 3–6 random ratings from other seed users."""
+    """Add 3–6 random reactions from other seed users."""
+    import random as _r
+    from src.core.models import Rating, ReactionType
+    from sqlalchemy import select
+    reactions = list(ReactionType)
     raters = [u for u in all_users if u.id != author_id]
-    random.shuffle(raters)
-    for rater in raters[:random.randint(3, min(6, len(raters)))]:
-        score = random.randint(5, 10)
-        from src.core.models import Rating
-        from sqlalchemy import select
+    _r.shuffle(raters)
+    for rater in raters[:_r.randint(3, min(6, len(raters)))]:
         existing = await session.execute(
             select(Rating).where(Rating.rater_id == rater.id, Rating.photo_id == photo_id)
         )
         if existing.scalar_one_or_none() is None:
-            session.add(Rating(rater_id=rater.id, photo_id=photo_id, score=score))
+            reaction = _r.choice(reactions)
+            session.add(Rating(rater_id=rater.id, photo_id=photo_id, reaction=reaction))
     await session.flush()
 
 

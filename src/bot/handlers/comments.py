@@ -1,15 +1,17 @@
-"""Handlers for viewing and adding comments to photos."""
+"""Handlers for comments and comment-initiated dialogs."""
 from __future__ import annotations
 
-from aiogram import F, Router
+from aiogram import F, Router, Bot
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.core.database import async_session_factory
 from src.core.services.comment import add_comment, get_active_comments, get_comment
-from src.core.services.message import create_message
 from src.core.services.photo import get_photo
+from src.core.services.user import get_user
 from src.bot.keyboards import next_photo_keyboard
 
 router = Router(name="comments")
@@ -17,8 +19,12 @@ router = Router(name="comments")
 
 class CommentStates(StatesGroup):
     waiting_comment_text = State()
-    waiting_reply_text = State()
+    waiting_reply_text = State()    # photo author replying to commenter
 
+
+# ---------------------------------------------------------------------------
+# View comments
+# ---------------------------------------------------------------------------
 
 @router.callback_query(lambda c: c.data and c.data.startswith("comments:view:"))
 async def cb_view_comments(callback: CallbackQuery) -> None:
@@ -42,113 +48,179 @@ async def cb_view_comments(callback: CallbackQuery) -> None:
             lines.append(f"{i}. {c.text[:200]}")
         text = "\n".join(lines)
 
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Написать комментарий", callback_data=f"comments:add:{photo_id}")
-    builder.button(text="↩️ Назад", callback_data=f"comments:back:{photo_id}")
+    builder.button(text="↩️ Назад", callback_data=f"browse:next:all")
     builder.adjust(1)
 
     await callback.message.answer(text, reply_markup=builder.as_markup())
     await callback.answer()
 
 
+# ---------------------------------------------------------------------------
+# Add comment (viewer -> photo)
+# ---------------------------------------------------------------------------
+
 @router.callback_query(lambda c: c.data and c.data.startswith("comments:add:"))
 async def cb_add_comment_start(callback: CallbackQuery, state: FSMContext) -> None:
     photo_id = int(callback.data.split(":")[2])
     await state.set_state(CommentStates.waiting_comment_text)
     await state.update_data(photo_id=photo_id)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⬅️ Отмена", callback_data="cancel:comment")
     await callback.message.answer(
-        f"✏️ Напиши комментарий к фото #{photo_id}:\n(или отправь /cancel для отмены)"
+        f"✏️ Напиши комментарий к фото #{photo_id}:",
+        reply_markup=builder.as_markup(),
     )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "cancel:comment")
+async def cb_cancel_comment(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.edit_text("❌ Отменено.")
     await callback.answer()
 
 
 @router.message(CommentStates.waiting_comment_text, F.text)
 async def handle_comment_text(message: Message, state: FSMContext) -> None:
-    if message.text.strip().lower() == "/cancel":
-        await state.clear()
-        await message.answer("❌ Отменено.")
-        return
-
     data = await state.get_data()
     photo_id: int = data["photo_id"]
     text = message.text.strip()
 
     async with async_session_factory() as session:
         comment = await add_comment(session, message.from_user.id, photo_id, text)
+        if comment is None:
+            await state.clear()
+            await message.answer("❌ Комментарии к этому фото отключены.")
+            return
+        # Load photo to find the author
+        photo = await get_photo(session, photo_id)
+        author = await get_user(session, photo.author_id) if photo else None
+        commenter = await get_user(session, message.from_user.id)
+        comment_id = comment.id
 
     await state.clear()
-    if comment is None:
-        await message.answer("❌ Не удалось добавить комментарий. Возможно, комментарии к этому фото отключены.")
-    else:
-        await message.answer(f"✅ Комментарий #{comment.id} добавлен!")
+    await message.answer("✅ Комментарий добавлен!")
+
+    # Notify photo author (if they're not the commenter)
+    if author and author.id != message.from_user.id:
+        commenter_name = (commenter.display_name or commenter.first_name or "Кто-то") if commenter else "Кто-то"
+        preview = text[:100] + ("…" if len(text) > 100 else "")
+
+        notify_builder = InlineKeyboardBuilder()
+        notify_builder.button(
+            text="↩️ Ответить",
+            callback_data=f"dialog:start:{comment_id}:{message.from_user.id}:{photo_id}"
+        )
+        notify_builder.button(
+            text="🚫 Пожаловаться",
+            callback_data=f"report:comment:{comment_id}"
+        )
+        notify_builder.adjust(2)
+
+        try:
+            bot: Bot = message.bot
+            await bot.send_message(
+                chat_id=author.id,
+                text=(
+                    f"💬 К вашему фото #{photo_id} новый комментарий:\n\n"
+                    f"«{preview}»"
+                ),
+                reply_markup=notify_builder.as_markup(),
+            )
+        except Exception:
+            pass
 
 
-@router.callback_query(lambda c: c.data and c.data.startswith("comments:reply:"))
-async def cb_reply_start(callback: CallbackQuery, state: FSMContext) -> None:
-    """Initiate anonymous reply to a comment author."""
+# ---------------------------------------------------------------------------
+# Photo author replies to a comment → starts / continues a dialog
+# ---------------------------------------------------------------------------
+
+@router.callback_query(lambda c: c.data and c.data.startswith("dialog:start:"))
+async def cb_dialog_start(callback: CallbackQuery, state: FSMContext) -> None:
+    """
+    callback_data: dialog:start:{comment_id}:{commenter_id}:{photo_id}
+    Triggered when photo author taps "Ответить" on comment notification.
+    """
     parts = callback.data.split(":")
     comment_id = int(parts[2])
+    commenter_id = int(parts[3])
+    photo_id = int(parts[4])
 
+    # Verify caller is the photo author
     async with async_session_factory() as session:
-        comment = await get_comment(session, comment_id)
-        if comment is None:
-            await callback.answer("Комментарий не найден.", show_alert=True)
+        photo = await get_photo(session, photo_id)
+        if photo is None or photo.author_id != callback.from_user.id:
+            await callback.answer("Это не ваше фото.", show_alert=True)
             return
-
-    if comment.author_id == callback.from_user.id:
-        await callback.answer("Нельзя ответить самому себе.", show_alert=True)
-        return
 
     await state.set_state(CommentStates.waiting_reply_text)
     await state.update_data(
         comment_id=comment_id,
-        recipient_id=comment.author_id,
-        photo_id=comment.photo_id,
+        recipient_id=commenter_id,
+        photo_id=photo_id,
     )
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⬅️ Отмена", callback_data="cancel:dialog_reply")
     await callback.message.answer(
-        "📨 Напиши анонимное сообщение автору комментария:\n(или /cancel для отмены)"
+        "📨 Напиши анонимный ответ автору комментария:",
+        reply_markup=builder.as_markup(),
     )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "cancel:dialog_reply")
+async def cb_cancel_dialog_reply(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.edit_text("❌ Отменено.")
     await callback.answer()
 
 
 @router.message(CommentStates.waiting_reply_text, F.text)
 async def handle_reply_text(message: Message, state: FSMContext) -> None:
-    if message.text.strip().lower() == "/cancel":
-        await state.clear()
-        await message.answer("❌ Отменено.")
-        return
-
     data = await state.get_data()
     text = message.text.strip()
+    comment_id = data.get("comment_id")
+    recipient_id = data["recipient_id"]
+    photo_id = data.get("photo_id")
 
+    from src.core.services.dialog import get_or_create_dialog, add_message as add_dialog_message
     async with async_session_factory() as session:
-        msg = await create_message(
+        dialog, is_new = await get_or_create_dialog(
             session,
-            sender_id=message.from_user.id,
-            recipient_id=data["recipient_id"],
-            text=text,
-            photo_id=data.get("photo_id"),
-            comment_id=data.get("comment_id"),
+            comment_id=comment_id,
+            initiator_id=message.from_user.id,
+            recipient_id=recipient_id,
         )
+        msg = await add_dialog_message(
+            session,
+            dialog_id=dialog.id,
+            sender_id=message.from_user.id,
+            recipient_id=recipient_id,
+            text=text,
+            photo_id=photo_id,
+        )
+        dialog_id = dialog.id
 
     await state.clear()
-    await message.answer(f"✅ Анонимное сообщение отправлено!")
+    await message.answer("✅ Ответ отправлен анонимно!")
 
-    # Notify recipient via bot
-    from aiogram import Bot
+    # Notify commenter
     bot: Bot = message.bot
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    builder = InlineKeyboardBuilder()
-    builder.button(text="↩️ Ответить", callback_data=f"dialog:reply:{msg.id}")
-    builder.button(text="🚫 Пожаловаться", callback_data=f"report:message:{msg.id}")
-    builder.adjust(2)
+    reply_builder = InlineKeyboardBuilder()
+    reply_builder.button(text="↩️ Ответить", callback_data=f"dialog:reply:{dialog_id}:{message.from_user.id}")
+    reply_builder.button(text="🚫 Пожаловаться", callback_data=f"report:message:{msg.id}")
+    reply_builder.button(text="🔴 Закрыть диалог", callback_data=f"dialog:close:{dialog_id}")
+    reply_builder.adjust(2, 1)
 
     try:
         await bot.send_message(
-            chat_id=data["recipient_id"],
-            text=f"📨 Тебе анонимное сообщение:\n\n{text}",
-            reply_markup=builder.as_markup(),
+            chat_id=recipient_id,
+            text=f"📨 Автор фото #{photo_id} ответил на твой комментарий:\n\n«{text}»",
+            reply_markup=reply_builder.as_markup(),
         )
     except Exception:
-        pass  # User may have blocked the bot
+        pass

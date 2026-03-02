@@ -14,7 +14,6 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
-    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -50,6 +49,11 @@ class MessageStatus(str, enum.Enum):
     deleted = "deleted"
 
 
+class DialogStatus(str, enum.Enum):
+    active = "active"
+    closed = "closed"
+
+
 class ReportTarget(str, enum.Enum):
     photo = "photo"
     comment = "comment"
@@ -68,6 +72,13 @@ class Gender(str, enum.Enum):
     unknown = "unknown"
 
 
+class ReactionType(str, enum.Enum):
+    heart = "heart"
+    fire = "fire"
+    heart_eyes = "heart_eyes"
+    dislike = "dislike"
+
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -81,6 +92,8 @@ class User(Base):
 
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """Публичный ник, выбранный пользователем при регистрации."""
     gender: Mapped[Gender] = mapped_column(
         Enum(Gender, name="gender_enum", values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
@@ -112,6 +125,12 @@ class User(Base):
     )
     blocked_users: Mapped[list[Block]] = relationship(
         "Block", back_populates="blocker", foreign_keys="Block.blocker_id"
+    )
+    dialogs_initiated: Mapped[list[Dialog]] = relationship(
+        "Dialog", back_populates="initiator", foreign_keys="Dialog.initiator_id"
+    )
+    dialogs_received: Mapped[list[Dialog]] = relationship(
+        "Dialog", back_populates="recipient", foreign_keys="Dialog.recipient_id"
     )
 
 
@@ -146,6 +165,8 @@ class Photo(Base):
 
 
 class Rating(Base):
+    """Реакция пользователя на фото (одна реакция на фото, можно заменить)."""
+
     __tablename__ = "ratings"
     __table_args__ = (
         UniqueConstraint("rater_id", "photo_id", name="uq_rating_rater_photo"),
@@ -158,8 +179,11 @@ class Rating(Base):
     photo_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("photos.id", ondelete="CASCADE"), nullable=False
     )
-    score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-    """Score 1–10."""
+    reaction: Mapped[ReactionType] = mapped_column(
+        Enum(ReactionType, name="reaction_type_enum"),
+        nullable=False,
+    )
+    """Тип реакции: heart / fire / heart_eyes / dislike."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -200,14 +224,62 @@ class Comment(Base):
     photo: Mapped[Photo] = relationship(
         "Photo", back_populates="comments", foreign_keys=[photo_id]
     )
+    dialog: Mapped[Dialog | None] = relationship(
+        "Dialog", back_populates="comment", foreign_keys="Dialog.comment_id", uselist=False
+    )
+
+
+class Dialog(Base):
+    """Анонимный диалог между двумя пользователями, начатый с ответа на комментарий."""
+
+    __tablename__ = "dialogs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    comment_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("comments.id", ondelete="SET NULL"), nullable=True
+    )
+    """Комментарий, с которого начался диалог (может быть NULL если удалён)."""
+    initiator_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    """Автор фото, который первым ответил на комментарий."""
+    recipient_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    """Автор комментария."""
+    status: Mapped[DialogStatus] = mapped_column(
+        Enum(DialogStatus, name="dialog_status_enum"),
+        nullable=False,
+        default=DialogStatus.active,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # relationships
+    comment: Mapped[Comment | None] = relationship(
+        "Comment", back_populates="dialog", foreign_keys=[comment_id]
+    )
+    initiator: Mapped[User] = relationship(
+        "User", back_populates="dialogs_initiated", foreign_keys=[initiator_id]
+    )
+    recipient: Mapped[User] = relationship(
+        "User", back_populates="dialogs_received", foreign_keys=[recipient_id]
+    )
+    messages: Mapped[list[Message]] = relationship(
+        "Message", back_populates="dialog", cascade="all, delete-orphan"
+    )
 
 
 class Message(Base):
-    """Anonymous proxied message in a dialog initiated from a photo comment."""
+    """Anonymous proxied message inside a Dialog."""
 
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dialog_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("dialogs.id", ondelete="CASCADE"), nullable=True
+    )
     sender_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -217,11 +289,7 @@ class Message(Base):
     photo_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("photos.id", ondelete="SET NULL"), nullable=True
     )
-    """Photo that started this dialog thread (can be NULL if photo deleted)."""
-    comment_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("comments.id", ondelete="SET NULL"), nullable=True
-    )
-    """Original comment that started the dialog (first message only)."""
+    """Photo context (for reference, can be NULL)."""
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[MessageStatus] = mapped_column(
         Enum(MessageStatus, name="message_status_enum"),
@@ -233,6 +301,9 @@ class Message(Base):
     )
 
     # relationships
+    dialog: Mapped[Dialog | None] = relationship(
+        "Dialog", back_populates="messages", foreign_keys=[dialog_id]
+    )
     sender: Mapped[User] = relationship(
         "User", back_populates="messages_sent", foreign_keys=[sender_id]
     )
