@@ -1,9 +1,10 @@
 """Moderation service — used by web panel."""
 from __future__ import annotations
 
+import random
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import delete as sa_delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.models import (
@@ -11,6 +12,7 @@ from src.core.models import (
     Block,
     Comment,
     CommentStatus,
+    Gender,
     Message,
     MessageStatus,
     Photo,
@@ -305,6 +307,60 @@ async def upload_photo_for_user(
     await session.commit()
     await session.refresh(photo)
     return photo
+
+
+async def hard_delete_user(session: AsyncSession, user_id: int, moderator: str) -> bool:
+    """Permanently delete a user and all their data (CASCADE). Use for fake/seed accounts."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        return False
+    await session.delete(user)
+    audit = AuditLog(
+        moderator=moderator,
+        action="hard_delete",
+        target_type="user",
+        target_id=user_id,
+    )
+    session.add(audit)
+    await session.commit()
+    return True
+
+
+def generate_fake_user_id() -> int:
+    """Return a random user_id clearly outside the real Telegram ID range."""
+    return random.randint(9_000_000_000, 9_999_999_999)
+
+
+async def create_fake_user(
+    session: AsyncSession,
+    user_id: int,
+    display_name: str,
+    first_name: str,
+    gender: str,
+    moderator: str,
+) -> User:
+    """Create a synthetic user for testing/seeding via the web panel."""
+    gender_enum = Gender.male if gender == "M" else (Gender.female if gender == "F" else Gender.unknown)
+    user = User(
+        id=user_id,
+        first_name=first_name or display_name,
+        display_name=display_name,
+        gender=gender_enum,
+        is_blocked=False,
+    )
+    session.add(user)
+    await session.flush()
+    audit = AuditLog(
+        moderator=moderator,
+        action="create_fake_user",
+        target_type="user",
+        target_id=user_id,
+    )
+    session.add(audit)
+    await session.commit()
+    await session.refresh(user)
+    return user
 
 
 async def get_audit_log(session: AsyncSession, limit: int = 100) -> list[AuditLog]:

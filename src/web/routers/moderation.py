@@ -15,7 +15,9 @@ from src.core.models import Photo
 from src.core.services.moderation import (
     apply_moderation_action,
     ban_user,
+    create_fake_user,
     delete_photo,
+    generate_fake_user_id,
     get_all_comments,
     get_all_photos,
     get_all_users,
@@ -25,6 +27,7 @@ from src.core.services.moderation import (
     get_report_target_preview,
     get_user_by_id,
     get_user_photos,
+    hard_delete_user,
     hide_comment,
     hide_photo,
     unban_user,
@@ -113,6 +116,44 @@ async def users_list(request: Request, moderator: str = Depends(require_moderato
     )
 
 
+@router.get("/users/create-fake", response_class=HTMLResponse)
+async def create_fake_user_form(
+    request: Request,
+    moderator: str = Depends(require_moderator),
+) -> HTMLResponse:
+    suggested_id = generate_fake_user_id()
+    return templates.TemplateResponse(
+        "create_fake_user.html",
+        {
+            "request": request,
+            "moderator": moderator,
+            "suggested_id": suggested_id,
+            "flash": None,
+        },
+    )
+
+
+@router.post("/users/create-fake")
+async def create_fake_user_submit(
+    request: Request,
+    user_id: int = Form(...),
+    display_name: str = Form(...),
+    first_name: str = Form(default=""),
+    gender: str = Form(default="M"),
+    moderator: str = Depends(require_moderator),
+) -> RedirectResponse:
+    async with async_session_factory() as session:
+        user = await create_fake_user(
+            session,
+            user_id=user_id,
+            display_name=display_name,
+            first_name=first_name or display_name,
+            gender=gender,
+            moderator=moderator,
+        )
+    return RedirectResponse(f"/users/{user.id}", status_code=302)
+
+
 @router.post("/users/{user_id}/ban")
 async def user_ban(user_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
     async with async_session_factory() as session:
@@ -125,6 +166,13 @@ async def user_unban(user_id: int, moderator: str = Depends(require_moderator)) 
     async with async_session_factory() as session:
         await unban_user(session, user_id, moderator)
     return RedirectResponse(f"/users/{user_id}", status_code=302)
+
+
+@router.post("/users/{user_id}/delete")
+async def user_delete(user_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
+    async with async_session_factory() as session:
+        await hard_delete_user(session, user_id, moderator)
+    return RedirectResponse("/users", status_code=302)
 
 
 @router.get("/users/{user_id}", response_class=HTMLResponse)

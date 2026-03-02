@@ -32,7 +32,7 @@
     <tr><th>Регистрация</th><td class="meta">{{ user.created_at.strftime('%d.%m.%Y %H:%M') }}</td></tr>
   </table>
 
-  <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+  <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center;">
     {% if user.is_blocked %}
       <form method="post" action="/users/{{ user.id }}/unban">
         <button type="submit" class="btn btn-success">✅ Разблокировать</button>
@@ -43,6 +43,12 @@
       </form>
     {% endif %}
     <a href="/photos/upload?user_id={{ user.id }}" class="btn btn-primary">⬆️ Загрузить фото</a>
+    {% if user.id >= 9000000000 %}
+    <form method="post" action="/users/{{ user.id }}/delete"
+          onsubmit="return confirm('Удалить фэйк-аккаунт #{{ user.id }} и все его данные навсегда?')">
+      <button type="submit" class="btn btn-danger" style="background:#6f1313;">🗑️ Удалить аккаунт</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 

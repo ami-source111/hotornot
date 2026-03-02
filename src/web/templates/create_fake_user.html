@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Создать фэйк-аккаунт — RateApp Mod{% endblock %}
+{% block content %}
+<h1>🤖 Создать фэйк-аккаунт</h1>
+
+<div class="card" style="max-width:480px;">
+  <p style="color:#666;margin-bottom:18px;font-size:0.9rem;">
+    Создаёт синтетического пользователя с нереальным Telegram ID для тестирования и посева данных.
+  </p>
+
+  <form method="post" action="/users/create-fake">
+
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-weight:600;margin-bottom:5px;">Telegram ID</label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="number" name="user_id" id="user_id_field" value="{{ suggested_id }}" required
+               style="flex:1;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;font-family:monospace;" />
+        <button type="button" onclick="regenerateId()"
+                style="padding:8px 12px;background:#6c757d;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;white-space:nowrap;">
+          🎲 Новый
+        </button>
+      </div>
+      <div style="font-size:0.78rem;color:#888;margin-top:4px;">
+        Нереальные ID начинаются с 9 000 000 000 — не пересекутся с настоящими пользователями.
+      </div>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-weight:600;margin-bottom:5px;">Псевдоним (display_name)</label>
+      <input type="text" name="display_name" placeholder="Например: Анна К." required maxlength="64"
+             style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;" />
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-weight:600;margin-bottom:5px;">Имя (first_name, опционально)</label>
+      <input type="text" name="first_name" placeholder="Оставь пустым — возьмём псевдоним" maxlength="128"
+             style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;" />
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <label style="display:block;font-weight:600;margin-bottom:5px;">Пол</label>
+      <div style="display:flex;gap:10px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="radio" name="gender" value="M" checked /> 👨 Мужской
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="radio" name="gender" value="F" /> 👩 Женский
+        </label>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;">
+      <button type="submit" class="btn btn-primary">🤖 Создать</button>
+      <a href="/users" class="btn btn-secondary">Отмена</a>
+    </div>
+  </form>
+</div>
+
+<script>
+function regenerateId() {
+  // Generate random ID in range 9_000_000_000 – 9_999_999_999
+  const min = 9000000000;
+  const max = 9999999999;
+  const id = Math.floor(Math.random() * (max - min + 1)) + min;
+  document.getElementById('user_id_field').value = id;
+}
+</script>
+{% endblock %}

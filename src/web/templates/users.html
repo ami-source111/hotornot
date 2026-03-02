@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Пользователи — RateApp Mod{% endblock %}
 {% block content %}
-<h1>👥 Пользователи <span style="font-size:1rem;font-weight:400;color:#666;">(последние {{ users|length }})</span></h1>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+  <h1 style="margin:0;">👥 Пользователи <span style="font-size:1rem;font-weight:400;color:#666;">({{ users|length }})</span></h1>
+  <a href="/users/create-fake" class="btn btn-primary" style="margin-left:auto;">🤖 Создать фэйк-аккаунт</a>
+</div>
 
 {% if not users %}
   <div class="card" style="text-align:center;color:#666;padding:40px;">Нет пользователей</div>
@@ -46,15 +49,21 @@
           </td>
           <td class="meta">{{ u.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
           <td style="display:flex;gap:4px;flex-wrap:wrap;">
-            <a href="/users/{{ u.id }}" class="btn btn-secondary" style="padding:4px 10px;font-size:0.8rem;">👤 Профиль</a>
+            <a href="/users/{{ u.id }}" class="btn btn-secondary" style="padding:4px 10px;font-size:0.8rem;">👤</a>
             {% if u.is_blocked %}
               <form method="post" action="/users/{{ u.id }}/unban">
                 <button type="submit" class="btn btn-success" style="padding:4px 10px;font-size:0.8rem;">Разблок.</button>
               </form>
             {% else %}
               <form method="post" action="/users/{{ u.id }}/ban">
-                <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Бан</button>
+                <button type="submit" class="btn btn-danger" style="padding:4px 8px;font-size:0.8rem;">Бан</button>
               </form>
+            {% endif %}
+            {% if u.id >= 9000000000 %}
+            <form method="post" action="/users/{{ u.id }}/delete"
+                  onsubmit="return confirm('Удалить фэйк-аккаунт #{{ u.id }} навсегда?')">
+              <button type="submit" class="btn btn-danger" style="padding:4px 8px;font-size:0.8rem;background:#6f1313;">🗑️</button>
+            </form>
             {% endif %}
           </td>
         </tr>
