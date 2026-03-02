@@ -1,0 +1,155 @@
+"""Moderation service — used by web panel."""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.models import (
+    AuditLog,
+    Block,
+    Comment,
+    CommentStatus,
+    Message,
+    MessageStatus,
+    Photo,
+    PhotoStatus,
+    Report,
+    ReportStatus,
+    User,
+)
+
+
+async def get_pending_reports(session: AsyncSession, limit: int = 50) -> list[Report]:
+    result = await session.execute(
+        select(Report)
+        .where(Report.status == ReportStatus.pending)
+        .order_by(Report.created_at.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_report(session: AsyncSession, report_id: int) -> Report | None:
+    result = await session.execute(select(Report).where(Report.id == report_id))
+    return result.scalar_one_or_none()
+
+
+async def get_report_target_preview(session: AsyncSession, report: Report) -> dict:
+    """Return a dict with target info for display in the moderation card."""
+    info: dict = {"type": report.target_type.value, "id": report.target_id, "content": None, "author_id": None}
+    if report.target_type.value == "photo":
+        r = await session.execute(select(Photo).where(Photo.id == report.target_id))
+        obj = r.scalar_one_or_none()
+        if obj:
+            info["content"] = obj.telegram_file_id
+            info["author_id"] = obj.author_id
+            info["status"] = obj.status.value
+    elif report.target_type.value == "comment":
+        r = await session.execute(select(Comment).where(Comment.id == report.target_id))
+        obj = r.scalar_one_or_none()
+        if obj:
+            info["content"] = obj.text
+            info["author_id"] = obj.author_id
+            info["status"] = obj.status.value
+    elif report.target_type.value == "message":
+        r = await session.execute(select(Message).where(Message.id == report.target_id))
+        obj = r.scalar_one_or_none()
+        if obj:
+            info["content"] = obj.text
+            info["author_id"] = obj.sender_id
+            info["status"] = obj.status.value
+    return info
+
+
+async def apply_moderation_action(
+    session: AsyncSession,
+    report_id: int,
+    action: str,
+    moderator: str,
+    note: str | None = None,
+) -> bool:
+    """
+    action: hide | delete | ban | reject
+    Returns True on success.
+    """
+    report = await get_report(session, report_id)
+    if report is None:
+        return False
+
+    target_type = report.target_type.value
+    target_id = report.target_id
+
+    if action == "reject":
+        # Just close the report, no content change
+        pass
+
+    elif action in ("hide", "delete"):
+        new_status = PhotoStatus.hidden if action == "hide" else PhotoStatus.deleted
+
+        if target_type == "photo":
+            await session.execute(
+                update(Photo)
+                .where(Photo.id == target_id)
+                .values(status=new_status)
+            )
+        elif target_type == "comment":
+            cs = CommentStatus.hidden if action == "hide" else CommentStatus.deleted
+            await session.execute(
+                update(Comment)
+                .where(Comment.id == target_id)
+                .values(status=cs)
+            )
+        elif target_type == "message":
+            ms = MessageStatus.hidden if action == "hide" else MessageStatus.deleted
+            await session.execute(
+                update(Message)
+                .where(Message.id == target_id)
+                .values(status=ms)
+            )
+
+    elif action == "ban":
+        # Ban the author of the target
+        author_id: int | None = None
+        if target_type == "photo":
+            r = await session.execute(select(Photo.author_id).where(Photo.id == target_id))
+            author_id = r.scalar_one_or_none()
+        elif target_type == "comment":
+            r = await session.execute(select(Comment.author_id).where(Comment.id == target_id))
+            author_id = r.scalar_one_or_none()
+        elif target_type == "message":
+            r = await session.execute(select(Message.sender_id).where(Message.id == target_id))
+            author_id = r.scalar_one_or_none()
+
+        if author_id:
+            await session.execute(
+                update(User).where(User.id == author_id).values(is_blocked=True)
+            )
+
+    # Mark report resolved / rejected
+    new_report_status = ReportStatus.rejected if action == "reject" else ReportStatus.resolved
+    await session.execute(
+        update(Report)
+        .where(Report.id == report_id)
+        .values(status=new_report_status, resolved_at=datetime.now(timezone.utc))
+    )
+
+    # Write audit log
+    audit = AuditLog(
+        moderator=moderator,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        note=note,
+    )
+    session.add(audit)
+    await session.commit()
+    return True
+
+
+async def get_audit_log(session: AsyncSession, limit: int = 100) -> list[AuditLog]:
+    result = await session.execute(
+        select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+    )
+    return list(result.scalars().all())

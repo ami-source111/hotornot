@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Report #{{ report.id }} - RateApp Mod{% endblock %}
+{% block content %}
+<h1>Report #{{ report.id }}</h1>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+  <div class="card">
+    <h2>Report Information</h2>
+    <table>
+      <tr><th>ID</th><td>{{ report.id }}</td></tr>
+      <tr><th>Target Type</th><td>{{ report.target_type.value }}</td></tr>
+      <tr><th>Target ID</th><td>{{ report.target_id }}</td></tr>
+      <tr><th>Report Status</th><td><span class="badge badge-{{ report.status.value }}">{{ report.status.value }}</span></td></tr>
+      <tr><th>Reporter ID</th><td>{{ report.reporter_id }}</td></tr>
+      <tr><th>Reason</th><td>{{ report.reason or '—' }}</td></tr>
+      <tr><th>Date</th><td class="meta">{{ report.created_at.strftime('%d.%m.%Y %H:%M:%S') }}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Target Content</h2>
+    <table>
+      <tr><th>Type</th><td>{{ target.type }}</td></tr>
+      <tr><th>ID</th><td>{{ target.id }}</td></tr>
+      {% if target.author_id %}
+      <tr><th>Author (user_id)</th><td>{{ target.author_id }}</td></tr>
+      {% endif %}
+      {% if target.status is defined and target.status %}
+      <tr><th>Status</th><td><span class="badge badge-{{ target.status }}">{{ target.status }}</span></td></tr>
+      {% endif %}
+    </table>
+    {% if target.content %}
+    <div style="margin-top:12px;">
+      <div style="font-weight:500;margin-bottom:6px;">Content:</div>
+      <div class="content-preview">{{ target.content }}</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if report.status.value == "pending" %}
+<div class="card" style="margin-top:16px;">
+  <h2>Moderator Action</h2>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
+
+    <form method="post" action="/reports/{{ report.id }}/action">
+      <input type="hidden" name="action" value="hide" />
+      <button type="submit" class="btn btn-warning">Hide</button>
+    </form>
+
+    <form method="post" action="/reports/{{ report.id }}/action">
+      <input type="hidden" name="action" value="delete" />
+      <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
+
+    <form method="post" action="/reports/{{ report.id }}/action">
+      <input type="hidden" name="action" value="ban" />
+      <button type="submit" class="btn btn-danger">Ban Author</button>
+    </form>
+
+    <form method="post" action="/reports/{{ report.id }}/action">
+      <input type="hidden" name="action" value="reject" />
+      <button type="submit" class="btn btn-secondary">Reject Report</button>
+    </form>
+
+  </div>
+</div>
+{% else %}
+<div class="card" style="margin-top:16px;">
+  <p>Report is processed ({{ report.status.value }})</p>
+  {% if report.resolved_at %}
+  <p class="meta">{{ report.resolved_at.strftime('%d.%m.%Y %H:%M:%S') }}</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div style="margin-top:16px;">
+  <a href="/reports" class="btn btn-secondary">Back to queue</a>
+</div>
+{% endblock %}

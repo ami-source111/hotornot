@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Login - RateApp Mod{% endblock %}
+{% block content %}
+<div style="max-width:360px;margin:80px auto;">
+  <div class="card">
+    <h1 style="text-align:center;margin-bottom:24px;">Login</h1>
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/login">
+      <div style="margin-bottom:16px;">
+        <label style="display:block;margin-bottom:4px;font-weight:500;">Username</label>
+        <input name="username" type="text" required autofocus
+          style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:6px;font-size:1rem;" />
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:4px;font-weight:500;">Password</label>
+        <input name="password" type="password" required
+          style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:6px;font-size:1rem;" />
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;">Login</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

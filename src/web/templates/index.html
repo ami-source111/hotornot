@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - RateApp Mod{% endblock %}
+{% block content %}
+<h1>Moderation Panel</h1>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px;">
+  <div class="card" style="text-align:center;">
+    <div style="font-size:2rem;margin-bottom:8px;">Reports</div>
+    <div style="font-size:1.8rem;font-weight:700;color:#dc3545;">{{ pending_count }}</div>
+    <div style="color:#666;">Pending reports</div>
+    <a href="/reports" class="btn btn-primary" style="margin-top:12px;">Open queue</a>
+  </div>
+</div>
+{% endblock %}

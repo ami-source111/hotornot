@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Reports - RateApp Mod{% endblock %}
+{% block content %}
+<h1>Reports Queue</h1>
+{% if not reports %}
+  <div class="card" style="text-align:center;color:#666;padding:40px;">
+    No pending reports
+  </div>
+{% else %}
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Type</th>
+          <th>Target ID</th>
+          <th>Status</th>
+          <th>Date</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td>{{ r.target_type.value }}</td>
+          <td>{{ r.target_id }}</td>
+          <td><span class="badge badge-{{ r.status.value }}">{{ r.status.value }}</span></td>
+          <td class="meta">{{ r.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td><a href="/reports/{{ r.id }}" class="btn btn-primary" style="padding:4px 12px;font-size:0.85rem;">Review</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}
