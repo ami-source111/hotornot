@@ -21,6 +21,36 @@ from src.core.models import (
 )
 
 
+async def get_all_photos(
+    session: AsyncSession, limit: int = 100, offset: int = 0
+) -> list[Photo]:
+    result = await session.execute(
+        select(Photo)
+        .order_by(Photo.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def hide_photo(session: AsyncSession, photo_id: int, moderator: str) -> bool:
+    await session.execute(
+        update(Photo).where(Photo.id == photo_id).values(status=PhotoStatus.hidden)
+    )
+    session.add(AuditLog(moderator=moderator, action="hide", target_type="photo", target_id=photo_id))
+    await session.commit()
+    return True
+
+
+async def delete_photo(session: AsyncSession, photo_id: int, moderator: str) -> bool:
+    await session.execute(
+        update(Photo).where(Photo.id == photo_id).values(status=PhotoStatus.deleted)
+    )
+    session.add(AuditLog(moderator=moderator, action="delete", target_type="photo", target_id=photo_id))
+    await session.commit()
+    return True
+
+
 async def get_all_users(
     session: AsyncSession, limit: int = 200, offset: int = 0
 ) -> list[User]:
