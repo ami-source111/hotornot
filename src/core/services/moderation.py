@@ -51,6 +51,23 @@ async def delete_photo(session: AsyncSession, photo_id: int, moderator: str) -> 
     return True
 
 
+async def get_user_by_id(session: AsyncSession, user_id: int) -> User | None:
+    result = await session.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
+
+
+async def get_user_photos(
+    session: AsyncSession, user_id: int, limit: int = 100
+) -> list[Photo]:
+    result = await session.execute(
+        select(Photo)
+        .where(Photo.author_id == user_id)
+        .order_by(Photo.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 async def get_all_users(
     session: AsyncSession, limit: int = 200, offset: int = 0
 ) -> list[User]:

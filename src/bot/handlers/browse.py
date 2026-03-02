@@ -56,12 +56,14 @@ async def _send_photo(
 
         author = await get_user(session, photo.author_id)
         author_name = (author.display_name or author.first_name or "Аноним") if author else "Аноним"
+        author_gender = author.gender.value if author else "unknown"
         photo_id = photo.id
         allow_comments = photo.allow_comments
         file_id = photo.telegram_file_id
         file_path = photo.file_path
 
-    caption = f"👤 {author_name}"
+    gender_emoji = "👨" if author_gender == "M" else ("👩" if author_gender == "F" else "👤")
+    caption = f"{gender_emoji} <b>{author_name}</b>"
 
     if file_path and Path(file_path).exists():
         photo_input = FSInputFile(file_path)
@@ -71,6 +73,7 @@ async def _send_photo(
     await target.answer_photo(
         photo=photo_input,
         caption=caption,
+        parse_mode="HTML",
         reply_markup=reaction_keyboard(photo_id, allow_comments, gender_filter, author_name),
     )
 
@@ -179,6 +182,7 @@ async def cb_author_profile(callback: CallbackQuery, state: FSMContext) -> None:
             return
         author = await get_user(session, photo.author_id)
         author_name = (author.display_name or author.first_name or "Аноним") if author else "Аноним"
+        author_gender = author.gender.value if author else "unknown"
         # Get author's photos (excluding current)
         author_photos = await get_author_photos(session, photo.author_id)
 
@@ -192,7 +196,7 @@ async def cb_author_profile(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(profile_author_id=photo.author_id, profile_photo_index=0, gender_filter=gender_filter)
 
     first_photo = author_photos[0]
-    await _send_author_photo(callback.message, first_photo, author_name, 0, len(author_photos), gender_filter)
+    await _send_author_photo(callback.message, first_photo, author_name, author_gender, 0, len(author_photos), gender_filter)
     await callback.answer()
 
 
@@ -211,6 +215,7 @@ async def cb_profile_next(callback: CallbackQuery, state: FSMContext) -> None:
     async with async_session_factory() as session:
         author = await get_user(session, author_id)
         author_name = (author.display_name or author.first_name or "Аноним") if author else "Аноним"
+        author_gender = author.gender.value if author else "unknown"
         author_photos = await get_author_photos(session, author_id)
 
     if index >= len(author_photos):
@@ -218,7 +223,7 @@ async def cb_profile_next(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await state.update_data(profile_photo_index=index)
-    await _send_author_photo(callback.message, author_photos[index], author_name, index, len(author_photos), gender_filter)
+    await _send_author_photo(callback.message, author_photos[index], author_name, author_gender, index, len(author_photos), gender_filter)
     await callback.answer()
 
 
@@ -231,10 +236,11 @@ async def cb_profile_back(callback: CallbackQuery, state: FSMContext) -> None:
     await _send_photo(callback.message, callback.from_user.id, gender_filter)
 
 
-async def _send_author_photo(target: Message, photo, author_name: str, index: int, total: int, gender_filter: str) -> None:
+async def _send_author_photo(target: Message, photo, author_name: str, author_gender: str, index: int, total: int, gender_filter: str) -> None:
     from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-    caption = f"👤 {author_name}  •  {index + 1}/{total}"
+    gender_emoji = "👨" if author_gender == "M" else ("👩" if author_gender == "F" else "👤")
+    caption = f"{gender_emoji} <b>{author_name}</b>  •  {index + 1}/{total}"
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Назад в ленту", callback_data="profile:back")
     if index + 1 < total:
@@ -249,5 +255,6 @@ async def _send_author_photo(target: Message, photo, author_name: str, index: in
     await target.answer_photo(
         photo=photo_input,
         caption=caption,
+        parse_mode="HTML",
         reply_markup=builder.as_markup(),
     )

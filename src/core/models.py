@@ -211,6 +211,8 @@ class Comment(Base):
         Integer, ForeignKey("photos.id", ondelete="CASCADE"), nullable=False
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    media_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    """Telegram file_id for a photo attached to the comment (optional)."""
     status: Mapped[CommentStatus] = mapped_column(
         Enum(CommentStatus, name="comment_status_enum"),
         nullable=False,

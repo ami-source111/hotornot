@@ -23,11 +23,18 @@
         {% for u in users %}
         <tr>
           <td class="meta">{{ u.id }}</td>
-          <td><strong>{{ u.first_name or '—' }}</strong></td>
+          <td>
+            <a href="/users/{{ u.id }}" style="font-weight:600;color:#0d6efd;text-decoration:none;">
+              {{ u.first_name or '—' }}
+            </a>
+            {% if u.display_name and u.display_name != u.first_name %}
+              <span class="meta" style="display:block;">{{ u.display_name }}</span>
+            {% endif %}
+          </td>
           <td class="meta">{{ '@' + u.username if u.username else '—' }}</td>
           <td>
-            {% if u.gender.value == 'M' %}👦 М
-            {% elif u.gender.value == 'F' %}👧 Ж
+            {% if u.gender.value == 'M' %}👨 М
+            {% elif u.gender.value == 'F' %}👩 Ж
             {% else %}—{% endif %}
           </td>
           <td>
@@ -38,14 +45,15 @@
             {% endif %}
           </td>
           <td class="meta">{{ u.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
-          <td>
+          <td style="display:flex;gap:4px;flex-wrap:wrap;">
+            <a href="/users/{{ u.id }}" class="btn btn-secondary" style="padding:4px 10px;font-size:0.8rem;">👤 Профиль</a>
             {% if u.is_blocked %}
               <form method="post" action="/users/{{ u.id }}/unban">
-                <button type="submit" class="btn btn-success" style="padding:4px 10px;font-size:0.8rem;">Разблокировать</button>
+                <button type="submit" class="btn btn-success" style="padding:4px 10px;font-size:0.8rem;">Разблок.</button>
               </form>
             {% else %}
               <form method="post" action="/users/{{ u.id }}/ban">
-                <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Заблокировать</button>
+                <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Бан</button>
               </form>
             {% endif %}
           </td>

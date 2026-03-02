@@ -8,7 +8,11 @@ from src.core.models import Comment, CommentStatus, Photo, PhotoStatus
 
 
 async def add_comment(
-    session: AsyncSession, author_id: int, photo_id: int, text: str
+    session: AsyncSession,
+    author_id: int,
+    photo_id: int,
+    text: str,
+    media_file_id: str | None = None,
 ) -> Comment | None:
     """Add a comment. Returns None if photo doesn't allow comments or not active."""
     result = await session.execute(
@@ -18,7 +22,12 @@ async def add_comment(
     if photo is None or not photo.allow_comments:
         return None
 
-    comment = Comment(author_id=author_id, photo_id=photo_id, text=text)
+    comment = Comment(
+        author_id=author_id,
+        photo_id=photo_id,
+        text=text,
+        media_file_id=media_file_id,
+    )
     session.add(comment)
     await session.commit()
     await session.refresh(comment)

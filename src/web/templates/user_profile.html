@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Пользователь #{{ user.id }} — RateApp Mod{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+  <h1 style="margin:0;">
+    {% if user.gender.value == 'M' %}👨{% elif user.gender.value == 'F' %}👩{% else %}👤{% endif %}
+    {{ user.display_name or user.first_name or 'Без имени' }}
+  </h1>
+  {% if user.is_blocked %}
+    <span class="badge badge-deleted">🔒 Заблокирован</span>
+  {% else %}
+    <span class="badge badge-active">✅ Активен</span>
+  {% endif %}
+  <span style="flex:1;"></span>
+  <a href="/users" class="btn btn-secondary" style="padding:6px 14px;">← Все пользователи</a>
+</div>
+
+<!-- User info card -->
+<div class="card" style="margin-bottom:16px;">
+  <h2>Информация</h2>
+  <table>
+    <tr><th>Telegram ID</th><td><code>{{ user.id }}</code></td></tr>
+    <tr><th>Имя</th><td>{{ user.first_name or '—' }}</td></tr>
+    <tr><th>Псевдоним</th><td>{{ user.display_name or '—' }}</td></tr>
+    <tr><th>Username</th><td>{{ '@' + user.username if user.username else '—' }}</td></tr>
+    <tr><th>Пол</th><td>
+      {% if user.gender.value == 'M' %}👨 Мужской
+      {% elif user.gender.value == 'F' %}👩 Женский
+      {% else %}—{% endif %}
+    </td></tr>
+    <tr><th>Регистрация</th><td class="meta">{{ user.created_at.strftime('%d.%m.%Y %H:%M') }}</td></tr>
+  </table>
+
+  <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+    {% if user.is_blocked %}
+      <form method="post" action="/users/{{ user.id }}/unban">
+        <button type="submit" class="btn btn-success">✅ Разблокировать</button>
+      </form>
+    {% else %}
+      <form method="post" action="/users/{{ user.id }}/ban">
+        <button type="submit" class="btn btn-danger">🔒 Заблокировать</button>
+      </form>
+    {% endif %}
+    <a href="/photos/upload?user_id={{ user.id }}" class="btn btn-primary">⬆️ Загрузить фото</a>
+  </div>
+</div>
+
+<!-- Photos section -->
+<h2 style="margin-bottom:12px;">📸 Фото ({{ photos|length }})</h2>
+
+{% if not photos %}
+  <div class="card" style="text-align:center;color:#666;padding:30px;">Нет фото</div>
+{% else %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;">
+    {% for p in photos %}
+    <div class="card" style="padding:10px;">
+      <div style="position:relative;width:100%;padding-bottom:100%;background:#eee;border-radius:6px;overflow:hidden;margin-bottom:8px;">
+        <img
+          src="/photo-proxy/{{ p.id }}"
+          loading="lazy"
+          style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;"
+          onerror="this.style.display='none'"
+        />
+        <span style="position:absolute;top:5px;right:5px;">
+          <span class="badge badge-{{ p.status.value }}">{{ p.status.value }}</span>
+        </span>
+      </div>
+
+      <div style="font-size:0.8rem;color:#555;margin-bottom:8px;">
+        <div>#{{ p.id }} &nbsp;·&nbsp; {{ p.created_at.strftime('%d.%m.%Y') }}</div>
+        <div>💬 {{ '✅' if p.allow_comments else '🚫' }}</div>
+      </div>
+
+      {% if p.status.value == 'active' %}
+      <div style="display:flex;gap:5px;flex-wrap:wrap;">
+        <form method="post" action="/photos/{{ p.id }}/hide">
+          <button type="submit" class="btn btn-warning" style="padding:3px 8px;font-size:0.75rem;">🙈 Скрыть</button>
+        </form>
+        <form method="post" action="/photos/{{ p.id }}/delete">
+          <button type="submit" class="btn btn-danger" style="padding:3px 8px;font-size:0.75rem;">🗑️ Удалить</button>
+        </form>
+      </div>
+      {% elif p.status.value == 'hidden' %}
+      <form method="post" action="/photos/{{ p.id }}/delete">
+        <button type="submit" class="btn btn-danger" style="padding:3px 8px;font-size:0.75rem;">🗑️ Удалить</button>
+      </form>
+      {% else %}
+      <div class="meta">Удалено</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% endblock %}

@@ -11,7 +11,7 @@
       <select name="user_id" required style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;">
         <option value="" disabled selected>— выберите пользователя —</option>
         {% for u in users %}
-        <option value="{{ u.id }}">
+        <option value="{{ u.id }}" {% if preselected_user_id and u.id == preselected_user_id %}selected{% endif %}>
           #{{ u.id }}
           {% if u.display_name %}{{ u.display_name }}{% elif u.first_name %}{{ u.first_name }}{% endif %}
           ({{ u.gender.value }})
@@ -27,9 +27,11 @@
     </div>
 
     <div style="margin-bottom:20px;display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" name="allow_comments" id="allow_comments" value="true" checked
-             style="width:16px;height:16px;cursor:pointer;" />
-      <label for="allow_comments" style="cursor:pointer;">Разрешить комментарии</label>
+      <input type="hidden" name="allow_comments" value="false" />
+      <input type="checkbox" id="allow_comments_cb" value="true"
+             onchange="document.querySelector('[name=allow_comments]').value = this.checked ? 'true' : 'false'"
+             checked style="width:16px;height:16px;cursor:pointer;" />
+      <label for="allow_comments_cb" style="cursor:pointer;">Разрешить комментарии</label>
     </div>
 
     <div style="display:flex;gap:10px;">

@@ -84,19 +84,22 @@ async def cb_cancel_comment(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(CommentStates.waiting_comment_text, F.text)
-async def handle_comment_text(message: Message, state: FSMContext) -> None:
+async def _process_comment(
+    message: Message,
+    state: FSMContext,
+    text: str,
+    media_file_id: str | None = None,
+) -> None:
+    """Save comment and notify photo author. Handles both text and photo comments."""
     data = await state.get_data()
     photo_id: int = data["photo_id"]
-    text = message.text.strip()
 
     async with async_session_factory() as session:
-        comment = await add_comment(session, message.from_user.id, photo_id, text)
+        comment = await add_comment(session, message.from_user.id, photo_id, text, media_file_id=media_file_id)
         if comment is None:
             await state.clear()
             await message.answer("❌ Комментарии к этому фото отключены.")
             return
-        # Load photo to find the author
         photo = await get_photo(session, photo_id)
         author = await get_user(session, photo.author_id) if photo else None
         commenter = await get_user(session, message.from_user.id)
@@ -130,16 +133,38 @@ async def handle_comment_text(message: Message, state: FSMContext) -> None:
 
         try:
             bot: Bot = message.bot
-            await bot.send_message(
-                chat_id=author.id,
-                text=(
-                    f"💬 К вашему фото #{photo_id} новый комментарий:\n\n"
-                    f"«{preview}»"
-                ),
-                reply_markup=notify_builder.as_markup(),
+            notify_text = (
+                f"💬 К вашему фото #{photo_id} новый комментарий:\n\n"
+                f"«{preview}»"
             )
+            if media_file_id:
+                await bot.send_photo(
+                    chat_id=author.id,
+                    photo=media_file_id,
+                    caption=notify_text,
+                    reply_markup=notify_builder.as_markup(),
+                )
+            else:
+                await bot.send_message(
+                    chat_id=author.id,
+                    text=notify_text,
+                    reply_markup=notify_builder.as_markup(),
+                )
         except Exception:
             pass
+
+
+@router.message(CommentStates.waiting_comment_text, F.text)
+async def handle_comment_text(message: Message, state: FSMContext) -> None:
+    await _process_comment(message, state, text=message.text.strip())
+
+
+@router.message(CommentStates.waiting_comment_text, F.photo)
+async def handle_comment_photo(message: Message, state: FSMContext) -> None:
+    """User sends a photo as a comment (with optional caption)."""
+    file_id = message.photo[-1].file_id
+    caption_text = (message.caption or "").strip() or "📷"
+    await _process_comment(message, state, text=caption_text, media_file_id=file_id)
 
 
 # ---------------------------------------------------------------------------

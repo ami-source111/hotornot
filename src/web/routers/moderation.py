@@ -23,6 +23,8 @@ from src.core.services.moderation import (
     get_pending_reports,
     get_report,
     get_report_target_preview,
+    get_user_by_id,
+    get_user_photos,
     hide_comment,
     hide_photo,
     unban_user,
@@ -115,14 +117,37 @@ async def users_list(request: Request, moderator: str = Depends(require_moderato
 async def user_ban(user_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
     async with async_session_factory() as session:
         await ban_user(session, user_id, moderator)
-    return RedirectResponse("/users", status_code=302)
+    return RedirectResponse(f"/users/{user_id}", status_code=302)
 
 
 @router.post("/users/{user_id}/unban")
 async def user_unban(user_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
     async with async_session_factory() as session:
         await unban_user(session, user_id, moderator)
-    return RedirectResponse("/users", status_code=302)
+    return RedirectResponse(f"/users/{user_id}", status_code=302)
+
+
+@router.get("/users/{user_id}", response_class=HTMLResponse)
+async def user_profile(
+    user_id: int,
+    request: Request,
+    moderator: str = Depends(require_moderator),
+) -> HTMLResponse:
+    async with async_session_factory() as session:
+        user = await get_user_by_id(session, user_id)
+        if user is None:
+            return HTMLResponse("Пользователь не найден", status_code=404)
+        photos = await get_user_photos(session, user_id)
+    return templates.TemplateResponse(
+        "user_profile.html",
+        {
+            "request": request,
+            "moderator": moderator,
+            "user": user,
+            "photos": photos,
+            "flash": None,
+        },
+    )
 
 
 @router.get("/comments", response_class=HTMLResponse)
@@ -149,13 +174,20 @@ async def comment_hide(comment_id: int, moderator: str = Depends(require_moderat
 @router.get("/photos/upload", response_class=HTMLResponse)
 async def photo_upload_form(
     request: Request,
+    user_id: int | None = None,
     moderator: str = Depends(require_moderator),
 ) -> HTMLResponse:
     async with async_session_factory() as session:
         users = await get_all_users(session, limit=500)
     return templates.TemplateResponse(
         "upload_photo.html",
-        {"request": request, "moderator": moderator, "users": users, "flash": None},
+        {
+            "request": request,
+            "moderator": moderator,
+            "users": users,
+            "preselected_user_id": user_id,
+            "flash": None,
+        },
     )
 
 
@@ -163,10 +195,11 @@ async def photo_upload_form(
 async def photo_upload_submit(
     request: Request,
     user_id: int = Form(...),
-    allow_comments: bool = Form(default=True),
+    allow_comments: str = Form(default="false"),
     file: UploadFile = File(...),
     moderator: str = Depends(require_moderator),
 ) -> RedirectResponse:
+    allow_comments_bool = allow_comments.lower() in ("true", "on", "1", "yes")
     ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         ext = ".jpg"
@@ -181,7 +214,7 @@ async def photo_upload_submit(
             session,
             author_id=user_id,
             file_path=str(file_path),
-            allow_comments=allow_comments,
+            allow_comments=allow_comments_bool,
             moderator=moderator,
         )
 
