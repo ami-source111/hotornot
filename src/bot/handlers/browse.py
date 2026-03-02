@@ -1,11 +1,13 @@
 """Handlers for /browse command — feed browsing and reactions."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, FSInputFile
 
 from src.core.database import async_session_factory
 from src.core.models import ReactionType
@@ -52,23 +54,22 @@ async def _send_photo(
             )
             return
 
-        counts = await get_photo_reactions(session, photo.id)
         author = await get_user(session, photo.author_id)
         author_name = (author.display_name or author.first_name or "Аноним") if author else "Аноним"
         photo_id = photo.id
         allow_comments = photo.allow_comments
         file_id = photo.telegram_file_id
+        file_path = photo.file_path
 
-    reactions_str = _reaction_summary(counts)
-    caption = (
-        f"📸 Фото #{photo_id}\n"
-        f"👤 Автор: {author_name}\n"
-        f"💫 Реакции: {reactions_str}\n"
-        f"💬 Комментарии: {'разрешены' if allow_comments else 'отключены'}"
-    )
+    caption = f"👤 {author_name}"
+
+    if file_path and Path(file_path).exists():
+        photo_input = FSInputFile(file_path)
+    else:
+        photo_input = file_id
 
     await target.answer_photo(
-        photo=file_id,
+        photo=photo_input,
         caption=caption,
         reply_markup=reaction_keyboard(photo_id, allow_comments, gender_filter, author_name),
     )
@@ -232,24 +233,21 @@ async def cb_profile_back(callback: CallbackQuery, state: FSMContext) -> None:
 
 async def _send_author_photo(target: Message, photo, author_name: str, index: int, total: int, gender_filter: str) -> None:
     from aiogram.utils.keyboard import InlineKeyboardBuilder
-    async with async_session_factory() as session:
-        counts = await get_photo_reactions(session, photo.id)
 
-    reactions_str = _reaction_summary(counts)
-    caption = (
-        f"👤 Фото автора: {author_name}\n"
-        f"📸 Фото {index + 1} из {total}\n"
-        f"💫 Реакции: {reactions_str}\n"
-        f"💬 Комментарии: {'разрешены' if photo.allow_comments else 'отключены'}"
-    )
+    caption = f"👤 {author_name}  •  {index + 1}/{total}"
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Назад в ленту", callback_data="profile:back")
     if index + 1 < total:
         builder.button(text="➡️ Следующее фото автора", callback_data="profile:next:go")
     builder.adjust(1)
 
+    if photo.file_path and Path(photo.file_path).exists():
+        photo_input = FSInputFile(photo.file_path)
+    else:
+        photo_input = photo.telegram_file_id
+
     await target.answer_photo(
-        photo=photo.telegram_file_id,
+        photo=photo_input,
         caption=caption,
         reply_markup=builder.as_markup(),
     )

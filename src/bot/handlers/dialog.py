@@ -159,7 +159,8 @@ async def handle_dialog_reply(message: Message, state: FSMContext) -> None:
         )
 
     await state.clear()
-    await message.answer("✅ Сообщение отправлено!")
+    from src.bot.keyboards import nav_keyboard
+    await message.answer("✅ Сообщение отправлено!", reply_markup=nav_keyboard())
 
     # Notify recipient
     bot: Bot = message.bot
@@ -192,7 +193,8 @@ async def cb_dialog_close(callback: CallbackQuery, state: FSMContext) -> None:
         ok = await close_dialog(session, dialog_id, user_id)
 
     if ok:
-        await callback.message.edit_text(f"🔴 Диалог #{dialog_id} закрыт.")
+        from src.bot.keyboards import nav_keyboard
+        await callback.message.answer(f"🔴 Диалог #{dialog_id} закрыт.", reply_markup=nav_keyboard())
     else:
         await callback.answer("Не удалось закрыть диалог.", show_alert=True)
     await callback.answer()

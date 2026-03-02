@@ -1,9 +1,11 @@
 """Moderation panel routes."""
 from __future__ import annotations
 
+import uuid
 import urllib.request
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -24,9 +26,13 @@ from src.core.services.moderation import (
     hide_comment,
     hide_photo,
     unban_user,
+    upload_photo_for_user,
 )
 from src.web.auth import require_moderator
 from sqlalchemy import select
+
+MEDIA_DIR = Path("/app/media")
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="src/web/templates")
@@ -106,20 +112,14 @@ async def users_list(request: Request, moderator: str = Depends(require_moderato
 
 
 @router.post("/users/{user_id}/ban")
-async def user_ban(
-    user_id: int,
-    moderator: str = Depends(require_moderator),
-) -> RedirectResponse:
+async def user_ban(user_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
     async with async_session_factory() as session:
         await ban_user(session, user_id, moderator)
     return RedirectResponse("/users", status_code=302)
 
 
 @router.post("/users/{user_id}/unban")
-async def user_unban(
-    user_id: int,
-    moderator: str = Depends(require_moderator),
-) -> RedirectResponse:
+async def user_unban(user_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
     async with async_session_factory() as session:
         await unban_user(session, user_id, moderator)
     return RedirectResponse("/users", status_code=302)
@@ -136,13 +136,56 @@ async def comments_list(request: Request, moderator: str = Depends(require_moder
 
 
 @router.post("/comments/{comment_id}/hide")
-async def comment_hide(
-    comment_id: int,
-    moderator: str = Depends(require_moderator),
-) -> RedirectResponse:
+async def comment_hide(comment_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
     async with async_session_factory() as session:
         await hide_comment(session, comment_id, moderator)
     return RedirectResponse("/comments", status_code=302)
+
+
+# ---------------------------------------------------------------------------
+# Photos
+# ---------------------------------------------------------------------------
+
+@router.get("/photos/upload", response_class=HTMLResponse)
+async def photo_upload_form(
+    request: Request,
+    moderator: str = Depends(require_moderator),
+) -> HTMLResponse:
+    async with async_session_factory() as session:
+        users = await get_all_users(session, limit=500)
+    return templates.TemplateResponse(
+        "upload_photo.html",
+        {"request": request, "moderator": moderator, "users": users, "flash": None},
+    )
+
+
+@router.post("/photos/upload")
+async def photo_upload_submit(
+    request: Request,
+    user_id: int = Form(...),
+    allow_comments: bool = Form(default=True),
+    file: UploadFile = File(...),
+    moderator: str = Depends(require_moderator),
+) -> RedirectResponse:
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        ext = ".jpg"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    file_path = MEDIA_DIR / filename
+
+    contents = await file.read()
+    file_path.write_bytes(contents)
+
+    async with async_session_factory() as session:
+        photo = await upload_photo_for_user(
+            session,
+            author_id=user_id,
+            file_path=str(file_path),
+            allow_comments=allow_comments,
+            moderator=moderator,
+        )
+
+    return RedirectResponse("/photos", status_code=302)
 
 
 @router.get("/photos", response_class=HTMLResponse)
@@ -156,31 +199,28 @@ async def photos_list(request: Request, moderator: str = Depends(require_moderat
 
 
 @router.post("/photos/{photo_id}/hide")
-async def photo_hide(
-    photo_id: int,
-    moderator: str = Depends(require_moderator),
-) -> RedirectResponse:
+async def photo_hide(photo_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
     async with async_session_factory() as session:
         await hide_photo(session, photo_id, moderator)
     return RedirectResponse("/photos", status_code=302)
 
 
 @router.post("/photos/{photo_id}/delete")
-async def photo_delete(
-    photo_id: int,
-    moderator: str = Depends(require_moderator),
-) -> RedirectResponse:
+async def photo_delete(photo_id: int, moderator: str = Depends(require_moderator)) -> RedirectResponse:
     async with async_session_factory() as session:
         await delete_photo(session, photo_id, moderator)
     return RedirectResponse("/photos", status_code=302)
 
+
+# ---------------------------------------------------------------------------
+# Photo proxy (local file or Telegram)
+# ---------------------------------------------------------------------------
 
 @router.get("/photo-proxy/{photo_id}")
 async def photo_proxy(
     photo_id: int,
     moderator: str = Depends(require_moderator),
 ) -> StreamingResponse:
-    """Proxy a Telegram photo through the server so the bot token stays secret."""
     async with async_session_factory() as session:
         result = await session.execute(select(Photo).where(Photo.id == photo_id))
         photo = result.scalar_one_or_none()
@@ -188,33 +228,42 @@ async def photo_proxy(
     if photo is None:
         return StreamingResponse(iter([b""]), status_code=404, media_type="image/jpeg")
 
-    try:
-        # Step 1: get file path from Telegram
-        import json
-        api_url = f"https://api.telegram.org/bot{settings.bot_token}/getFile?file_id={photo.telegram_file_id}"
-        with urllib.request.urlopen(api_url, timeout=10) as resp:
-            data = json.loads(resp.read())
-        file_path = data["result"]["file_path"]
+    # Local file takes priority
+    if photo.file_path and Path(photo.file_path).exists():
+        img_bytes = Path(photo.file_path).read_bytes()
+        media_type = "image/jpeg"
+        if str(photo.file_path).endswith(".png"):
+            media_type = "image/png"
+        elif str(photo.file_path).endswith(".webp"):
+            media_type = "image/webp"
+        return StreamingResponse(iter([img_bytes]), media_type=media_type)
 
-        # Step 2: download image bytes
-        img_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
-        with urllib.request.urlopen(img_url, timeout=15) as resp:
-            img_bytes = resp.read()
+    # Telegram proxy
+    if photo.telegram_file_id:
+        try:
+            import json
+            api_url = f"https://api.telegram.org/bot{settings.bot_token}/getFile?file_id={photo.telegram_file_id}"
+            with urllib.request.urlopen(api_url, timeout=10) as resp:
+                data = json.loads(resp.read())
+            tg_path = data["result"]["file_path"]
+            img_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{tg_path}"
+            with urllib.request.urlopen(img_url, timeout=15) as resp:
+                img_bytes = resp.read()
+            return StreamingResponse(iter([img_bytes]), media_type="image/jpeg")
+        except Exception:
+            pass
 
-        return StreamingResponse(iter([img_bytes]), media_type="image/jpeg")
-    except Exception:
-        # Return a small grey placeholder on error
-        placeholder = (
-            b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
-            b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t"
-            b"\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a"
-            b"\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\x1b\xc0"
-            b"\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f\x00"
-            b"\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00"
-            b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xda\x00\x08\x01"
-            b"\x01\x00\x00?\x00\xf5\x0f\xff\xd9"
-        )
-        return StreamingResponse(iter([placeholder]), media_type="image/jpeg")
+    placeholder = (
+        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+        b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t"
+        b"\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a"
+        b"\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\x1b\xc0"
+        b"\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f\x00"
+        b"\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00"
+        b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xda\x00\x08\x01"
+        b"\x01\x00\x00?\x00\xf5\x0f\xff\xd9"
+    )
+    return StreamingResponse(iter([placeholder]), media_type="image/jpeg")
 
 
 @router.get("/audit", response_class=HTMLResponse)

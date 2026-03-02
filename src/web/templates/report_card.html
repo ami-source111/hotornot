@@ -29,7 +29,15 @@
       <tr><th>Status</th><td><span class="badge badge-{{ target.status }}">{{ target.status }}</span></td></tr>
       {% endif %}
     </table>
-    {% if target.content %}
+    {% if target.photo_id %}
+    <div style="margin-top:12px;">
+      <div style="font-weight:500;margin-bottom:6px;">Photo:</div>
+      <img src="/photo-proxy/{{ target.photo_id }}"
+           style="max-width:100%;max-height:320px;border-radius:8px;border:1px solid #ddd;"
+           onerror="this.style.display='none'" />
+    </div>
+    {% endif %}
+    {% if target.content and target.type != 'photo' %}
     <div style="margin-top:12px;">
       <div style="font-weight:500;margin-bottom:6px;">Content:</div>
       <div class="content-preview">{{ target.content }}</div>

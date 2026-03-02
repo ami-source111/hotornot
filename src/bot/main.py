@@ -7,7 +7,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from src.core.config import settings
-from src.bot.handlers import start, upload, browse, comments, dialog, report, block, menu
+from src.bot.handlers import start, upload, browse, comments, dialog, report, block, menu, nav
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ async def main() -> None:
     dp.include_router(report.router)
     dp.include_router(block.router)
     dp.include_router(menu.router)
+    dp.include_router(nav.router)
 
     logger.info("Bot started polling")
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())

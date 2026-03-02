@@ -107,6 +107,17 @@ def next_photo_keyboard(filter_val: str = "all") -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+# --- Global navigation bar (appears at bottom of many messages) ---
+
+def nav_keyboard(gender_filter: str = "all") -> InlineKeyboardMarkup:
+    """Compact nav row: В ленту | Главное меню."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📰 В ленту", callback_data=f"nav:feed:{gender_filter}")
+    builder.button(text="🏠 Меню", callback_data="nav:menu")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 # --- Main menu keyboard ---
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:

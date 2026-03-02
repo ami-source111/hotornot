@@ -141,7 +141,10 @@ class Photo(Base):
     author_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    telegram_file_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    telegram_file_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    """Telegram file_id (None for web-uploaded photos until first bot send)."""
+    file_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    """Local file path for photos uploaded via web panel (e.g. /app/media/uuid.jpg)."""
     allow_comments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[PhotoStatus] = mapped_column(
         Enum(PhotoStatus, name="photo_status_enum"),

@@ -50,7 +50,8 @@ async def cb_view_comments(callback: CallbackQuery) -> None:
 
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Написать комментарий", callback_data=f"comments:add:{photo_id}")
-    builder.button(text="↩️ Назад", callback_data=f"browse:next:all")
+    builder.button(text="➡️ Следующее фото", callback_data="browse:next:all")
+    builder.button(text="🏠 Главное меню", callback_data="nav:menu")
     builder.adjust(1)
 
     await callback.message.answer(text, reply_markup=builder.as_markup())
@@ -102,7 +103,14 @@ async def handle_comment_text(message: Message, state: FSMContext) -> None:
         comment_id = comment.id
 
     await state.clear()
-    await message.answer("✅ Комментарий добавлен!")
+
+    # Post-comment keyboard (feature C)
+    post_builder = InlineKeyboardBuilder()
+    post_builder.button(text="✏️ Написать ещё", callback_data=f"comments:add:{photo_id}")
+    post_builder.button(text="➡️ Следующее фото", callback_data="browse:next:all")
+    post_builder.button(text="🏠 Главное меню", callback_data="nav:menu")
+    post_builder.adjust(2, 1)
+    await message.answer("✅ Комментарий добавлен!", reply_markup=post_builder.as_markup())
 
     # Notify photo author (if they're not the commenter)
     if author and author.id != message.from_user.id:

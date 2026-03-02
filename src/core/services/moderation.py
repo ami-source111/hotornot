@@ -143,7 +143,13 @@ async def get_report(session: AsyncSession, report_id: int) -> Report | None:
 
 async def get_report_target_preview(session: AsyncSession, report: Report) -> dict:
     """Return a dict with target info for display in the moderation card."""
-    info: dict = {"type": report.target_type.value, "id": report.target_id, "content": None, "author_id": None}
+    info: dict = {
+        "type": report.target_type.value,
+        "id": report.target_id,
+        "content": None,
+        "author_id": None,
+        "photo_id": None,
+    }
     if report.target_type.value == "photo":
         r = await session.execute(select(Photo).where(Photo.id == report.target_id))
         obj = r.scalar_one_or_none()
@@ -151,6 +157,7 @@ async def get_report_target_preview(session: AsyncSession, report: Report) -> di
             info["content"] = obj.telegram_file_id
             info["author_id"] = obj.author_id
             info["status"] = obj.status.value
+            info["photo_id"] = obj.id
     elif report.target_type.value == "comment":
         r = await session.execute(select(Comment).where(Comment.id == report.target_id))
         obj = r.scalar_one_or_none()
@@ -158,6 +165,7 @@ async def get_report_target_preview(session: AsyncSession, report: Report) -> di
             info["content"] = obj.text
             info["author_id"] = obj.author_id
             info["status"] = obj.status.value
+            info["photo_id"] = obj.photo_id
     elif report.target_type.value == "message":
         r = await session.execute(select(Message).where(Message.id == report.target_id))
         obj = r.scalar_one_or_none()
@@ -251,6 +259,35 @@ async def apply_moderation_action(
     session.add(audit)
     await session.commit()
     return True
+
+
+async def upload_photo_for_user(
+    session: AsyncSession,
+    author_id: int,
+    file_path: str,
+    allow_comments: bool,
+    moderator: str,
+) -> Photo:
+    """Upload a photo on behalf of a user from a local file (web panel)."""
+    photo = Photo(
+        author_id=author_id,
+        telegram_file_id=None,
+        file_path=file_path,
+        allow_comments=allow_comments,
+        status=PhotoStatus.active,
+    )
+    session.add(photo)
+    await session.flush()
+    audit = AuditLog(
+        moderator=moderator,
+        action="upload",
+        target_type="photo",
+        target_id=photo.id,
+    )
+    session.add(audit)
+    await session.commit()
+    await session.refresh(photo)
+    return photo
 
 
 async def get_audit_log(session: AsyncSession, limit: int = 100) -> list[AuditLog]:

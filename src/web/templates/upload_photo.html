@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Загрузить фото — RateApp Mod{% endblock %}
+{% block content %}
+<h1>📸 Загрузить фото для пользователя</h1>
+
+<div class="card" style="max-width:520px;">
+  <form method="post" action="/photos/upload" enctype="multipart/form-data">
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-weight:600;margin-bottom:6px;">Пользователь</label>
+      <select name="user_id" required style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;">
+        <option value="" disabled selected>— выберите пользователя —</option>
+        {% for u in users %}
+        <option value="{{ u.id }}">
+          #{{ u.id }}
+          {% if u.display_name %}{{ u.display_name }}{% elif u.first_name %}{{ u.first_name }}{% endif %}
+          ({{ u.gender.value }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-weight:600;margin-bottom:6px;">Фото (jpg / png / webp)</label>
+      <input type="file" name="file" accept="image/jpeg,image/png,image/webp" required
+             style="width:100%;padding:6px 0;font-size:0.9rem;" />
+    </div>
+
+    <div style="margin-bottom:20px;display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" name="allow_comments" id="allow_comments" value="true" checked
+             style="width:16px;height:16px;cursor:pointer;" />
+      <label for="allow_comments" style="cursor:pointer;">Разрешить комментарии</label>
+    </div>
+
+    <div style="display:flex;gap:10px;">
+      <button type="submit" class="btn btn-primary">⬆️ Загрузить</button>
+      <a href="/photos" class="btn btn-secondary">Отмена</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

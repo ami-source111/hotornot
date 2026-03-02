@@ -24,6 +24,8 @@ services:
     env_file: .env
     ports:
       - "8000:8000"
+    volumes:
+      - media:/app/media
     depends_on:
       db:
         condition: service_healthy
@@ -34,9 +36,12 @@ services:
       target: bot
     restart: unless-stopped
     env_file: .env
+    volumes:
+      - media:/app/media
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
+  media:
